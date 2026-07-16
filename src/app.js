@@ -5,6 +5,21 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 export const app = express();
 
+// Every route here is dynamic, per-user, and behind Bearer auth — none of it
+// should ever be browser-cached. Express's default `res.json()` auto-
+// generates an ETag on every response, and when an identical GET repeats
+// with unchanged data (e.g. switching admin tabs back and forth re-fetches
+// the same endpoint), the browser sends If-None-Match and gets back a 304
+// with NO body. apiClient.js's apiFetch treats any non-2xx as a failure, so
+// that legitimate-but-empty response was surfacing as "Request failed
+// (304)" instead of just reusing the data — disabling ETags/caching
+// entirely is the correct fix for an API shaped like this, not a workaround.
+app.set("etag", false);
+app.use((_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 // Deployed frontend + local Vite dev server. FRONTEND_URL lets a future
 // deploy add/change the allowed origin without a code change.
 const allowedOrigins = [

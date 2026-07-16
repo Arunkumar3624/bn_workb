@@ -16,8 +16,12 @@ if (!process.env.DATABASE_URL) {
 // this client has no CA bundle for; the connection is still encrypted, just
 // not chain-verified (the standard pattern for connecting to Render/Heroku-
 // style managed Postgres without vendoring their CA cert).
+// Bare hostnames with no dot — "localhost", "127.0.0.1", or a Docker
+// Compose/network service name like "workbridge_db_container" — are always
+// a local, non-SSL Postgres. Anything with a dot is a real DNS name (managed
+// Postgres from Render or any other host), which requires SSL.
 const dbHost = new URL(process.env.DATABASE_URL).hostname;
-const isLocalDb = dbHost === "localhost" || dbHost === "127.0.0.1";
+const isLocalDb = dbHost === "localhost" || dbHost === "127.0.0.1" || !dbHost.includes(".");
 
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,

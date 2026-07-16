@@ -26,7 +26,7 @@ export async function setUserVerified(client, userId, verified) {
 const FUNDS_HELD_STATUSES = ["FUNDS_SECURED", "WORK_IN_PROGRESS", "FILES_SUBMITTED", "DISPUTED"];
 
 export async function getPlatformStats() {
-  const [{ rows: totalUsers }, { rows: jobsToday }, { rows: revenue }, { rows: pool }] = await Promise.all([
+  const [{ rows: totalUsers }, { rows: jobsToday }, { rows: revenue }, { rows: pool }, { rows: totalProjects }, { rows: pendingVerifications }, { rows: openDisputes }] = await Promise.all([
     query(`SELECT count(*)::int AS count FROM users`),
     query(`SELECT count(*)::int AS count FROM projects WHERE created_at::date = now()::date`),
     query(`SELECT COALESCE(sum(amount), 0)::numeric AS total FROM transactions WHERE type = 'PLATFORM_FEE'`),
@@ -34,6 +34,12 @@ export async function getPlatformStats() {
       `SELECT COALESCE(sum(budget), 0)::numeric AS total FROM projects WHERE status = ANY($1::project_status[])`,
       [FUNDS_HELD_STATUSES]
     ),
+    // The following three power AdminOverviewTab's "Platform KPIs" progress
+    // bars (verification backlog %, dispute rate %) with real ratios rather
+    // than invented percentages.
+    query(`SELECT count(*)::int AS count FROM projects`),
+    query(`SELECT count(*)::int AS count FROM users WHERE verified = false AND role IN ('worker', 'business')`),
+    query(`SELECT count(*)::int AS count FROM projects WHERE status = 'DISPUTED'`),
   ]);
 
   return {
@@ -41,6 +47,9 @@ export async function getPlatformStats() {
     jobsToday: jobsToday[0].count,
     platformRevenue: revenue[0].total,
     fundsSecuredPool: pool[0].total,
+    totalProjects: totalProjects[0].count,
+    pendingVerifications: pendingVerifications[0].count,
+    openDisputes: openDisputes[0].count,
   };
 }
 
