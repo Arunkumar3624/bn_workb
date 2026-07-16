@@ -10,6 +10,20 @@ export async function findById(id, client = { query }) {
   return rows[0] ?? null;
 }
 
+// Single-project fetch joined to both participants' public profiles — same
+// join list() already does, just scoped to one row. Used by GET /:id.
+export async function findByIdJoined(id) {
+  const { rows } = await query(
+    `SELECT p.*, w.name AS worker_name, b.name AS business_name
+     FROM projects p
+     JOIN public_user_profiles w ON w.id = p.worker_id
+     JOIN public_user_profiles b ON b.id = p.business_id
+     WHERE p.id = $1`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
 export async function findByIdForUpdate(client, id) {
   // FOR UPDATE row-locks this project row for the duration of the
   // transaction, so a second concurrent "complete" call on the same

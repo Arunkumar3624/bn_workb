@@ -45,3 +45,10 @@ export const createReview = asyncHandler(async (req, res) => {
   // own consistency requirement the brief asked for.
   res.status(201).json({ data: review });
 });
+
+// GET /api/reviews?revieweeId= — public list of reviews a user has
+// received (same trust-signal category as public_user_profiles.rating).
+export const listReviews = asyncHandler(async (req, res) => {
+  const reviews = await reviewsRepo.listForReviewee(req.query.revieweeId);
+  res.json({ data: reviews });
+});

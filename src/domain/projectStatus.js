@@ -4,6 +4,7 @@
 // are separate deployables in this repo; if they ever move into a
 // monorepo-with-shared-package setup, this is the file to dedupe first.
 export const PROJECT_STATUS_FLOW = [
+  "INVITED",
   "ACCEPTED",
   "FUNDS_SECURED",
   "WORK_IN_PROGRESS",
@@ -14,7 +15,8 @@ export const PROJECT_STATUS_FLOW = [
 // actionBy: which role's PATCH request is allowed to move a project OUT of
 // this status and into the next one in PROJECT_STATUS_FLOW.
 export const PROJECT_STATUS_META = {
-  ACCEPTED: { actionBy: "business" }, // business secures funds via payment, not a raw PATCH — see projects.controller.js
+  INVITED: { actionBy: "worker" }, // worker accepts the invite via PATCH
+  ACCEPTED: { actionBy: "business" }, // business secures funds — POST /secure-funds only, never PATCH (see projects.controller.js)
   FUNDS_SECURED: { actionBy: "worker" }, // worker starts work
   WORK_IN_PROGRESS: { actionBy: "worker" }, // worker submits files
   FILES_SUBMITTED: { actionBy: "business" }, // business releases payment — POST /complete only, never PATCH

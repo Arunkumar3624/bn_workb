@@ -12,3 +12,21 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
   if (!profile) throw ApiError.notFound("Profile not found.");
   res.json({ data: profile });
 });
+
+// GET /api/profiles?role=worker — the browse-workers listing
+// (BusinessWorkers.jsx). Same public_user_profiles view as the single-id
+// route, so no PII is ever in the result set.
+export const listPublicProfiles = asyncHandler(async (req, res) => {
+  const profiles = await usersRepo.listPublicProfiles({ role: req.query.role });
+  res.json({ data: profiles });
+});
+
+// PATCH /api/profiles/me — behind `guard`. req.user.id only; there is no
+// :id param here, so a caller can never edit anyone else's profile.
+export const updateOwnProfile = asyncHandler(async (req, res) => {
+  const { avatarUrl, title, profilePatch } = req.body;
+  const updated = await usersRepo.updateSelf(req.user.id, { avatarUrl, title, profilePatch });
+  if (!updated) throw ApiError.notFound("User not found.");
+  const { password_hash, ...safe } = updated;
+  res.json({ data: safe });
+});

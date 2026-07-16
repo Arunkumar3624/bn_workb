@@ -28,6 +28,21 @@ export const listProjects = asyncHandler(async (req, res) => {
   res.json({ data: projects, page, pageSize });
 });
 
+// GET /api/projects/:id — a single project, joined to both participants'
+// public profiles. Only a participant (or admin) may fetch it — same
+// participant check as updateProjectStatus.
+export const getProject = asyncHandler(async (req, res) => {
+  const project = await projectsRepo.findByIdJoined(req.params.id);
+  if (!project) throw ApiError.notFound("Project not found.");
+
+  const isParticipant = project.worker_id === req.user.id || project.business_id === req.user.id;
+  if (!isParticipant && req.user.role !== "admin") {
+    throw ApiError.forbidden("You are not a participant on this project.");
+  }
+
+  res.json({ data: project });
+});
+
 // POST /api/projects — a business creates a new project/invite. Only a
 // business may call this (enforced by requireRole("business") in the
 // router) — the caller becomes businessId, never a client-supplied value.
@@ -67,6 +82,48 @@ export const updateProjectStatus = asyncHandler(async (req, res) => {
 
   const updated = await projectsRepo.updateStatus(id, toStatus);
   res.json({ data: updated });
+});
+
+// POST /api/projects/:id/secure-funds — ACCEPTED -> FUNDS_SECURED, only by
+// the business on the project. Its own atomic endpoint (not a plain PATCH)
+// because it writes a FUNDS_SECURED ledger row alongside the status change —
+// same reasoning as completeProject below. No wallet_balance touched here:
+// only workers hold a spendable balance in this schema, and this transaction
+// represents money moving into holding, not being paid out yet.
+export const secureFunds = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const result = await transaction(async (client) => {
+    const project = await projectsRepo.findByIdForUpdate(client, id);
+    if (!project) throw ApiError.notFound("Project not found.");
+
+    if (project.business_id !== req.user.id) {
+      throw ApiError.forbidden("Only the business on this project can secure funds.");
+    }
+    if (project.status !== "ACCEPTED") {
+      throw ApiError.badRequest(`Cannot secure funds for a project in status ${project.status} — expected ACCEPTED.`);
+    }
+
+    const updatedProject = await projectsRepo.updateStatus(id, "FUNDS_SECURED", client);
+
+    const txn = await transactionsRepo.insert(
+      {
+        projectId: id,
+        workerId: project.worker_id,
+        businessId: project.business_id,
+        type: "FUNDS_SECURED",
+        direction: "debit",
+        amount: Number(project.budget),
+        fundsStatus: "HELD",
+        referenceNote: `Funds secured – ${project.title}`,
+      },
+      client
+    );
+
+    return { project: updatedProject, transaction: txn };
+  });
+
+  res.json({ data: result });
 });
 
 // POST /api/projects/:id/complete — the Logic Bridge. Only reachable when

@@ -20,3 +20,19 @@ export async function findByProjectAndReviewer(projectId, reviewerId) {
   );
   return rows[0] ?? null;
 }
+
+// Reviews a user has RECEIVED — the trust-page use case (WorkerProfile.jsx's
+// reviews section), same "public trust signal" category as
+// public_user_profiles.rating/reviews_count, so this is a public read too.
+// Joined to public_user_profiles for the reviewer's display name.
+export async function listForReviewee(revieweeId) {
+  const { rows } = await query(
+    `SELECT r.*, p.name AS reviewer_name
+     FROM reviews r
+     JOIN public_user_profiles p ON p.id = r.reviewer_id
+     WHERE r.reviewee_id = $1
+     ORDER BY r.created_at DESC`,
+    [revieweeId]
+  );
+  return rows;
+}

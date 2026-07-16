@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authRouter } from "./auth.routes.js";
 import { projectsRouter } from "./projects.routes.js";
 import { walletRouter } from "./wallet.routes.js";
 import { reviewsRouter } from "./reviews.routes.js";
@@ -7,6 +8,7 @@ import { adminRouter } from "./admin.routes.js";
 
 export const apiRouter = Router();
 
+apiRouter.use("/auth", authRouter); // register/login are the other unguarded routes
 apiRouter.use("/projects", projectsRouter);
 apiRouter.use("/wallet", walletRouter);
 apiRouter.use("/reviews", reviewsRouter);

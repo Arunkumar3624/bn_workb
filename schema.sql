@@ -96,9 +96,12 @@ CREATE TRIGGER trg_users_updated_at
 -- The only view an unauthenticated (or cross-user) API route should read
 -- from — email and phone are structurally absent, not just filtered by the
 -- application layer, so a forgotten `WHERE` clause can't leak them.
+-- `profile` IS included — it's the free-form public professional info
+-- (skills/hourly_rate/bio/location, set via PATCH /api/profiles/me), not
+-- PII, and BusinessWorkers.jsx's browse-workers listing needs it.
 CREATE VIEW public_user_profiles AS
   SELECT id, role, name, avatar_url, title, verified, behavior_score,
-         rating, reviews_count, created_at
+         rating, reviews_count, created_at, profile
   FROM users;
 
 -- ─── 2. projects ────────────────────────────────────────────────────────────
@@ -242,7 +245,9 @@ CREATE TYPE platform_log_action AS ENUM (
   'VERIFY_APPROVED',
   'VERIFY_REJECTED',
   'DISPUTE_REFUNDED',
-  'DISPUTE_RELEASED'
+  'DISPUTE_RELEASED',
+  'SUBMISSION_APPROVED',
+  'SUBMISSION_REJECTED'
 );
 
 CREATE TABLE platform_logs (
@@ -261,6 +266,51 @@ CREATE INDEX idx_platform_logs_target_project_id ON platform_logs (target_projec
 
 CREATE TRIGGER trg_platform_logs_updated_at
   BEFORE UPDATE ON platform_logs
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ─── 6. submissions ─────────────────────────────────────────────────────────
+-- The Trust Checker — every deliverable either participant shares on a
+-- project (a worker's finished-work link/image, or a business's reference
+-- material) sits in PENDING_REVIEW until an admin looks at it. The
+-- counterparty never sees a submission until it's APPROVED — enforced by
+-- the API layer (submissions.controller.js), since a plain SELECT can't
+-- express "unless you're the submitter."
+--
+-- `url` (type='link') is the primary path — Google Drive/Dropbox/OneDrive/
+-- any URL — since there's no object-storage (S3/GCS) integration yet.
+-- `image_data` (type='image') is a small direct upload, stored as a data URL
+-- the same way users.avatar_url is; it is NOT a general file-upload
+-- mechanism and is capped client+server-side at a few MB, never 50-500MB —
+-- that scale of binary needs real object storage, not a Postgres TEXT column.
+
+CREATE TYPE submission_type AS ENUM ('link', 'image');
+CREATE TYPE submission_status AS ENUM ('PENDING_REVIEW', 'APPROVED', 'REJECTED');
+
+CREATE TABLE submissions (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id        UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  submitted_by      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  type              submission_type NOT NULL,
+  url               TEXT,
+  image_data        TEXT,
+  caption           TEXT,
+  status            submission_status NOT NULL DEFAULT 'PENDING_REVIEW',
+  reviewed_by       UUID REFERENCES users(id) ON DELETE RESTRICT,
+  reviewed_at       TIMESTAMPTZ,
+  rejection_reason  TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_submission_content CHECK (
+    (type = 'link' AND url IS NOT NULL) OR (type = 'image' AND image_data IS NOT NULL)
+  )
+);
+
+CREATE INDEX idx_submissions_project_id ON submissions (project_id);
+CREATE INDEX idx_submissions_status ON submissions (status);
+
+CREATE TRIGGER trg_submissions_updated_at
+  BEFORE UPDATE ON submissions
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ─── Design notes ───────────────────────────────────────────────────────────

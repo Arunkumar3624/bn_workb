@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { guard, requireRole } from "../middleware/guard.js";
+import { validate } from "../middleware/validate.js";
 import {
   listVerifications,
   verifyUser,
@@ -7,6 +8,8 @@ import {
   listDisputes,
   resolveDispute,
 } from "../controllers/admin.controller.js";
+import { listPendingSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
+import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
 
 export const adminRouter = Router();
 
@@ -23,3 +26,7 @@ adminRouter.get("/stats", getPlatformStats);
 
 adminRouter.get("/disputes", listDisputes);
 adminRouter.post("/disputes/:id/resolve", resolveDispute);
+
+// The Trust Checker's moderation queue.
+adminRouter.get("/submissions", listPendingSubmissions);
+adminRouter.patch("/submissions/:id", validate(reviewSubmissionSchema), reviewSubmission);

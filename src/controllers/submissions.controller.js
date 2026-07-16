@@ -1,0 +1,93 @@
+import { transaction } from "../db/client.js";
+import { ApiError } from "../utils/ApiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import * as projectsRepo from "../repositories/projects.repository.js";
+import * as submissionsRepo from "../repositories/submissions.repository.js";
+import * as adminRepo from "../repositories/admin.repository.js";
+
+async function mustBeParticipant(req, projectId) {
+  const project = await projectsRepo.findById(projectId);
+  if (!project) throw ApiError.notFound("Project not found.");
+
+  const isParticipant = project.worker_id === req.user.id || project.business_id === req.user.id;
+  if (!isParticipant && req.user.role !== "admin") {
+    throw ApiError.forbidden("You are not a participant on this project.");
+  }
+  return project;
+}
+
+// POST /api/projects/:id/submissions — either participant can submit a
+// deliverable (a worker's finished-work link/image, or a business's
+// reference material). Always lands in PENDING_REVIEW — see listSubmissions
+// for why the counterparty can't see it yet.
+export const createSubmission = asyncHandler(async (req, res) => {
+  await mustBeParticipant(req, req.params.id);
+
+  const { type, url, imageData, caption } = req.body;
+  const submission = await submissionsRepo.create({
+    projectId: req.params.id,
+    submittedBy: req.user.id,
+    type,
+    url,
+    imageData,
+    caption,
+  });
+  res.status(201).json({ data: submission });
+});
+
+// GET /api/projects/:id/submissions — the Trust Checker's visibility rule:
+// the submitter sees their own submission at any status; the OTHER
+// participant only ever sees APPROVED ones (PENDING_REVIEW/REJECTED are
+// invisible to them, not just unlabeled) — admins see everything.
+export const listSubmissions = asyncHandler(async (req, res) => {
+  await mustBeParticipant(req, req.params.id);
+
+  const all = await submissionsRepo.listForProject(req.params.id);
+  const visible =
+    req.user.role === "admin"
+      ? all
+      : all.filter((s) => s.submitted_by === req.user.id || s.status === "APPROVED");
+
+  res.json({ data: visible });
+});
+
+// ─── Admin moderation ─────────────────────────────────────────────────────
+
+// GET /api/admin/submissions
+export const listPendingSubmissions = asyncHandler(async (_req, res) => {
+  const data = await submissionsRepo.listPendingReview();
+  res.json({ data });
+});
+
+// PATCH /api/admin/submissions/:id — body: { approved: boolean, rejectionReason? }
+export const reviewSubmission = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { approved, rejectionReason } = req.body;
+
+  const result = await transaction(async (client) => {
+    const submission = await submissionsRepo.findById(id);
+    if (!submission) throw ApiError.notFound("Submission not found.");
+    if (submission.status !== "PENDING_REVIEW") {
+      throw ApiError.badRequest(`This submission was already ${submission.status.toLowerCase()}.`);
+    }
+
+    const updated = await submissionsRepo.review(client, id, {
+      status: approved ? "APPROVED" : "REJECTED",
+      reviewedBy: req.user.id,
+      rejectionReason: approved ? null : rejectionReason,
+    });
+
+    await adminRepo.insertPlatformLog(client, {
+      adminId: req.user.id,
+      action: approved ? "SUBMISSION_APPROVED" : "SUBMISSION_REJECTED",
+      targetProjectId: submission.project_id,
+      notes: approved
+        ? `Approved a ${submission.type} submission`
+        : `Rejected a ${submission.type} submission${rejectionReason ? `: ${rejectionReason}` : ""}`,
+    });
+
+    return updated;
+  });
+
+  res.json({ data: result });
+});
