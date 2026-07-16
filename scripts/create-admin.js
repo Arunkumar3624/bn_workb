@@ -24,14 +24,18 @@ function parseArgs() {
   return args;
 }
 
-const { name, email, password } = parseArgs();
+const { name, email, password, phone } = parseArgs();
 
 if (!name || !email || !password) {
-  console.error("Usage: node scripts/create-admin.js --name \"Full Name\" --email admin@example.com --password \"...\"");
+  console.error("Usage: node scripts/create-admin.js --name \"Full Name\" --email admin@example.com --password \"...\" [--phone 9876543210]");
   process.exit(1);
 }
 if (password.length < 8) {
   console.error("Password must be at least 8 characters.");
+  process.exit(1);
+}
+if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+  console.error(`"${email}" doesn't look like a valid email address (missing @ or domain?).`);
   process.exit(1);
 }
 
@@ -39,10 +43,10 @@ const passwordHash = await bcrypt.hash(password, 10);
 
 try {
   const { rows } = await query(
-    `INSERT INTO users (role, name, email, password_hash)
-     VALUES ('admin', $1, $2, $3)
-     RETURNING id, name, email, role`,
-    [name, email, passwordHash]
+    `INSERT INTO users (role, name, email, password_hash, phone)
+     VALUES ('admin', $1, $2, $3, $4)
+     RETURNING id, name, email, role, phone`,
+    [name, email, passwordHash, phone ?? null]
   );
   console.log(`Admin created: ${rows[0].name} <${rows[0].email}> (id ${rows[0].id})`);
 } catch (err) {
