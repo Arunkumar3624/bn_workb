@@ -9,7 +9,20 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+// Local docker-compose Postgres has no SSL support at all; managed Postgres
+// (Render, and every other host) requires it — enabling it unconditionally
+// would break local dev, so it's keyed off whether the host is localhost.
+// rejectUnauthorized: false because these hosts use provider-issued certs
+// this client has no CA bundle for; the connection is still encrypted, just
+// not chain-verified (the standard pattern for connecting to Render/Heroku-
+// style managed Postgres without vendoring their CA cert).
+const dbHost = new URL(process.env.DATABASE_URL).hostname;
+const isLocalDb = dbHost === "localhost" || dbHost === "127.0.0.1";
+
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: isLocalDb ? false : { rejectUnauthorized: false },
+});
 
 // A pool-level connection error (e.g. the container restarts, a network
 // blip) fires here asynchronously, outside any request — without this
