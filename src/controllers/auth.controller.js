@@ -5,6 +5,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as authRepo from "../repositories/auth.repository.js";
+import { sendOtpEmail } from "../services/email.service.js";
 
 const SALT_ROUNDS = 10;
 const TOKEN_TTL = "7d";
@@ -93,7 +94,7 @@ async function assertSignupAvailable({ email, phone }) {
 }
 
 export const sendOtp = asyncHandler(async (req, res) => {
-  const { identifier, role, mode } = req.body;
+  const { identifier, role, mode, email } = req.body;
   assertIdentifierBelongsToPayload(req.body);
 
   let otpRole = role;
@@ -126,15 +127,27 @@ export const sendOtp = asyncHandler(async (req, res) => {
     expiresAt,
   });
 
-  // Development delivery adapter. Replace this line with your email/SMS
-  // provider before production; the API response never exposes the code.
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.RESEND_API_KEY && process.env.OTP_FROM_EMAIL) {
+    try {
+      await sendOtpEmail({
+        to: email,
+        otpCode,
+        expiresInMinutes: OTP_TTL_MINUTES,
+      });
+    } catch (err) {
+      await authRepo.deleteOtpsForIdentifier(identifier, otpRole);
+      throw err;
+    }
+  } else if (process.env.NODE_ENV !== "production") {
     console.log(`[auth:otp] ${identifier} (${otpRole}/${mode}) -> ${otpCode}`);
+  } else {
+    await authRepo.deleteOtpsForIdentifier(identifier, otpRole);
+    throw ApiError.internal("OTP email delivery is not configured.");
   }
 
   res.json({
     data: {
-      message: `A verification code has been sent to ${identifier}.`,
+      message: `A verification code has been sent to ${email}.`,
       expiresInSeconds: OTP_TTL_MINUTES * 60,
       resendAfterSeconds: OTP_RESEND_SECONDS,
       role: otpRole,
