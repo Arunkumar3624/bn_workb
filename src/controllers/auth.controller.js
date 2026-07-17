@@ -3,9 +3,11 @@ import jwt from "jsonwebtoken";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as usersRepo from "../repositories/users.repository.js";
+import * as authRepo from "../repositories/auth.repository.js";
 
 const SALT_ROUNDS = 10;
 const TOKEN_TTL = "7d";
+const OTP_TTL_MINUTES = 10;
 
 // The caller's own profile — allowed to include email/phone (unlike
 // public_user_profiles, which strips them for everyone else) but password_hash
@@ -38,6 +40,46 @@ export const register = asyncHandler(async (req, res) => {
   }
 
   res.status(201).json({ data: { token: issueToken(user), user: toSelf(user) } });
+});
+
+function generateOtpCode() {
+  return String(Math.floor(Math.random() * 1000000)).padStart(6, "0");
+}
+
+export const sendOtp = asyncHandler(async (req, res) => {
+  const { identifier, role } = req.body;
+  const user = await authRepo.findUserByIdentifier(identifier, role);
+
+  if (user) {
+    const otpCode = generateOtpCode();
+    const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+
+    await authRepo.deleteOtpsForIdentifier(identifier, role);
+    await authRepo.createOtp({ identifier, role, code: otpCode, expiresAt });
+
+    // In production this would send an SMS or email. For local/demo use we
+    // still treat the endpoint as successful without leaking account state.
+  }
+
+  res.json({ data: { message: "If an account exists for that identifier, a code has been sent." } });
+});
+
+export const verifyOtp = asyncHandler(async (req, res) => {
+  const { identifier, role, otp } = req.body;
+  const user = await authRepo.findUserByIdentifier(identifier, role);
+
+  if (!user) {
+    throw ApiError.unauthorized("Invalid code or account.");
+  }
+
+  const otpRow = await authRepo.findValidOtp(identifier, role, otp);
+  if (!otpRow) {
+    throw ApiError.unauthorized("Invalid code or account.");
+  }
+
+  await authRepo.deleteOtpsForIdentifier(identifier, role);
+
+  res.json({ data: { token: issueToken(user), user: toSelf(user) } });
 });
 
 // POST /api/auth/login — public. Generic error message on any failure (no

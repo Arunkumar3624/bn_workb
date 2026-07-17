@@ -14,3 +14,16 @@ export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1, "Password is required"),
 });
+
+const identifierSchema = z.string().trim().min(1, "Identifier is required.");
+
+export const sendOtpSchema = z.object({
+  identifier: identifierSchema,
+  role: z.enum(["worker", "business"]),
+});
+
+export const verifyOtpSchema = z.object({
+  identifier: identifierSchema,
+  role: z.enum(["worker", "business"]),
+  otp: z.string().trim().length(6, "Enter the 6-digit code.").regex(/^[0-9]{6}$/, "Enter the 6-digit code."),
+});
