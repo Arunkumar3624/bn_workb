@@ -15,15 +15,37 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-const identifierSchema = z.string().trim().min(1, "Identifier is required.");
+const emailSchema = z.string().trim().toLowerCase().email("Enter a valid email address.");
+const phoneSchema = z.string().trim().regex(/^\d{10}$/, "Enter a valid 10-digit phone number.");
+const identifierSchema = z.union([emailSchema, phoneSchema]);
 
-export const sendOtpSchema = z.object({
+// Password + OTP is intentionally a two-step flow. The same pending account
+// data is validated on both calls; a new user is only written after the OTP
+// succeeds, while an existing user's password is checked before an OTP is
+// issued and checked again when the code is redeemed.
+const otpAuthFields = {
   identifier: identifierSchema,
   role: z.enum(["worker", "business"]),
-});
+  mode: z.enum(["signin", "signup"]),
+  email: emailSchema,
+  phone: phoneSchema,
+  password: z.string().min(8, "Password must be at least 8 characters.").max(128),
+  name: z.string().trim().min(2).max(200).optional(),
+};
+
+function requireSignupName(data, ctx) {
+  if (data.mode === "signup" && !data.name) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["name"],
+      message: "Full name is required to create an account.",
+    });
+  }
+}
+
+export const sendOtpSchema = z.object(otpAuthFields).superRefine(requireSignupName);
 
 export const verifyOtpSchema = z.object({
-  identifier: identifierSchema,
-  role: z.enum(["worker", "business"]),
-  otp: z.string().trim().length(6, "Enter the 6-digit code.").regex(/^[0-9]{6}$/, "Enter the 6-digit code."),
-});
+  ...otpAuthFields,
+  otp: z.string().trim().regex(/^[0-9]{6}$/, "Enter the 6-digit code."),
+}).superRefine(requireSignupName);

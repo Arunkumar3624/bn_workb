@@ -12,6 +12,11 @@ export async function findByEmail(email) {
   return rows[0] ?? null;
 }
 
+export async function findByPhone(phone) {
+  const { rows } = await query(`SELECT * FROM users WHERE phone = $1 LIMIT 1`, [phone]);
+  return rows[0] ?? null;
+}
+
 // Only ever called with role 'worker' | 'business' — see
 // auth.validators.js's registerSchema, which excludes 'admin' at the
 // boundary so this repo function never has to re-check it.
