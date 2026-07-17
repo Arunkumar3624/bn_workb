@@ -2,12 +2,10 @@ import { Router } from "express";
 import { guard } from "../middleware/guard.js";
 import { validate } from "../middleware/validate.js";
 import {
-  loginSchema,
   sendOtpSchema,
   verifyOtpSchema,
 } from "../validators/auth.validators.js";
 import {
-  login,
   me,
   sendOtp,
   verifyOtp,
@@ -15,10 +13,8 @@ import {
 
 export const authRouter = Router();
 
-// Admins are internally provisioned and use password login. Public worker
-// and business registration/sign-in both go through the two OTP endpoints,
-// so there is no password-only route that can bypass verification.
-authRouter.post("/login", validate(loginSchema), login);
+// One role-agnostic password + OTP sign-in flow serves workers, businesses,
+// and internally provisioned admins. Admin signup remains unavailable.
 authRouter.post("/send-otp", validate(sendOtpSchema), sendOtp);
 authRouter.post("/verify-otp", validate(verifyOtpSchema), verifyOtp);
 

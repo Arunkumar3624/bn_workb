@@ -67,10 +67,12 @@ function assertIdentifierBelongsToPayload({ identifier, email, phone }) {
   }
 }
 
-async function findSigninUser({ identifier, role, email, phone, password }) {
-  const user = await authRepo.findUserByIdentifier(identifier, role);
+async function findSigninUser({ identifier, email, phone, password }) {
+  // Sign-in is role-agnostic. A real account's role comes from Postgres,
+  // never from the Freelancer/Business entry point selected in the UI.
+  const user = await authRepo.findAnyUserByIdentifier(identifier);
   const sameEmail = user?.email?.toLowerCase() === email;
-  const samePhone = user?.phone === phone;
+  const samePhone = !phone || user?.phone === phone;
   const accountMatches = sameEmail && samePhone;
   const passwordMatches = user ? await bcrypt.compare(password, user.password_hash) : false;
 
@@ -94,13 +96,15 @@ export const sendOtp = asyncHandler(async (req, res) => {
   const { identifier, role, mode } = req.body;
   assertIdentifierBelongsToPayload(req.body);
 
+  let otpRole = role;
   if (mode === "signin") {
-    await findSigninUser(req.body);
+    const user = await findSigninUser(req.body);
+    otpRole = user.role;
   } else {
     await assertSignupAvailable(req.body);
   }
 
-  const previousOtp = await authRepo.findLatestOtp(identifier, role);
+  const previousOtp = await authRepo.findLatestOtp(identifier, otpRole);
   if (previousOtp) {
     const ageSeconds = (Date.now() - new Date(previousOtp.created_at).getTime()) / 1000;
     if (ageSeconds < OTP_RESEND_SECONDS) {
@@ -114,18 +118,18 @@ export const sendOtp = asyncHandler(async (req, res) => {
   const otpCode = generateOtpCode();
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
 
-  await authRepo.deleteOtpsForIdentifier(identifier, role);
+  await authRepo.deleteOtpsForIdentifier(identifier, otpRole);
   await authRepo.createOtp({
     identifier,
-    role,
-    code: hashOtp(identifier, role, mode, otpCode),
+    role: otpRole,
+    code: hashOtp(identifier, otpRole, mode, otpCode),
     expiresAt,
   });
 
   // Development delivery adapter. Replace this line with your email/SMS
   // provider before production; the API response never exposes the code.
   if (process.env.NODE_ENV !== "production") {
-    console.log(`[auth:otp] ${identifier} (${role}/${mode}) -> ${otpCode}`);
+    console.log(`[auth:otp] ${identifier} (${otpRole}/${mode}) -> ${otpCode}`);
   }
 
   res.json({
@@ -133,6 +137,7 @@ export const sendOtp = asyncHandler(async (req, res) => {
       message: `A verification code has been sent to ${identifier}.`,
       expiresInSeconds: OTP_TTL_MINUTES * 60,
       resendAfterSeconds: OTP_RESEND_SECONDS,
+      role: otpRole,
     },
   });
 });
@@ -141,21 +146,25 @@ export const verifyOtp = asyncHandler(async (req, res) => {
   const { identifier, role, mode, otp, name, email, phone, password } = req.body;
   assertIdentifierBelongsToPayload(req.body);
 
-  const otpRow = await authRepo.findLatestOtp(identifier, role);
+  let user = null;
+  let otpRole = role;
+  if (mode === "signin") {
+    user = await findSigninUser(req.body);
+    otpRole = user.role;
+  }
+
+  const otpRow = await authRepo.findLatestOtp(identifier, otpRole);
   if (!otpRow || new Date(otpRow.expires_at).getTime() <= Date.now()) {
-    await authRepo.deleteOtpsForIdentifier(identifier, role);
+    await authRepo.deleteOtpsForIdentifier(identifier, otpRole);
     throw ApiError.unauthorized("This verification code is invalid or has expired.");
   }
 
-  const candidateHash = hashOtp(identifier, role, mode, otp);
+  const candidateHash = hashOtp(identifier, otpRole, mode, otp);
   if (!otpMatches(otpRow.otp_code, candidateHash)) {
     throw ApiError.unauthorized("This verification code is invalid or has expired.");
   }
 
-  let user;
-  if (mode === "signin") {
-    user = await findSigninUser(req.body);
-  } else {
+  if (mode === "signup") {
     await assertSignupAvailable(req.body);
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     try {
@@ -169,29 +178,10 @@ export const verifyOtp = asyncHandler(async (req, res) => {
   }
 
   // Consume the OTP only after every credential/database check succeeds.
-  await authRepo.deleteOtpsForIdentifier(identifier, role);
+  await authRepo.deleteOtpsForIdentifier(identifier, otpRole);
   res.status(mode === "signup" ? 201 : 200).json({
     data: { token: issueToken(user), user: toSelf(user) },
   });
-});
-
-// POST /api/auth/login — public. Generic error message on any failure (no
-// such email, or wrong password) so this endpoint never reveals which one
-// was wrong — that's a user-enumeration vector otherwise.
-export const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = await usersRepo.findByEmail(email);
-  const passwordMatches = user ? await bcrypt.compare(password, user.password_hash) : false;
-
-  // Worker/business accounts must not be able to bypass their OTP step by
-  // calling this legacy password endpoint directly. It remains available
-  // only for internally provisioned admin accounts.
-  if (!user || user.role !== "admin" || !passwordMatches) {
-    throw ApiError.unauthorized("Invalid email or password.");
-  }
-
-  res.json({ data: { token: issueToken(user), user: toSelf(user) } });
 });
 
 // GET /api/auth/me — behind `guard`. req.user.id comes from the verified

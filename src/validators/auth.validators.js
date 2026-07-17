@@ -25,20 +25,34 @@ const identifierSchema = z.union([emailSchema, phoneSchema]);
 // issued and checked again when the code is redeemed.
 const otpAuthFields = {
   identifier: identifierSchema,
-  role: z.enum(["worker", "business"]),
+  role: z.enum(["worker", "business", "admin"]),
   mode: z.enum(["signin", "signup"]),
   email: emailSchema,
-  phone: phoneSchema,
+  phone: phoneSchema.optional(),
   password: z.string().min(8, "Password must be at least 8 characters.").max(128),
   name: z.string().trim().min(2).max(200).optional(),
 };
 
 function requireSignupName(data, ctx) {
+  if (data.mode === "signup" && data.role === "admin") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["role"],
+      message: "Admin accounts cannot be created publicly.",
+    });
+  }
   if (data.mode === "signup" && !data.name) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["name"],
       message: "Full name is required to create an account.",
+    });
+  }
+  if (data.mode === "signup" && !data.phone) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["phone"],
+      message: "Phone number is required to create an account.",
     });
   }
 }
