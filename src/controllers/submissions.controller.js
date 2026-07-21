@@ -22,7 +22,7 @@ async function mustBeParticipant(req, projectId) {
 // reference material). Always lands in PENDING_REVIEW — see listSubmissions
 // for why the counterparty can't see it yet.
 export const createSubmission = asyncHandler(async (req, res) => {
-  await mustBeParticipant(req, req.params.id);
+  const project = await mustBeParticipant(req, req.params.id);
 
   const { type, url, imageData, caption } = req.body;
   const submission = await submissionsRepo.create({
@@ -33,6 +33,15 @@ export const createSubmission = asyncHandler(async (req, res) => {
     imageData,
     caption,
   });
+
+  // A heads-up only — PENDING_REVIEW content itself stays invisible to the
+  // other participant until admin approves (listSubmissions below still
+  // enforces that), same visibility rule this event doesn't bypass.
+  emitProjectEvent(project, "SUBMISSION_CREATED", {
+    submissionId: submission.id,
+    submittedBy: req.user.id,
+  });
+
   res.status(201).json({ data: submission });
 });
 
@@ -94,6 +103,7 @@ export const reviewSubmission = asyncHandler(async (req, res) => {
   emitProjectEvent(result.project, "SUBMISSION_REVIEWED", {
     submissionId: result.submission.id,
     status: result.submission.status,
+    submittedBy: result.submission.submitted_by,
   });
 
   // Wire shape to the caller is unchanged — still just the submission row.

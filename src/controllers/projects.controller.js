@@ -82,6 +82,12 @@ export const updateProjectStatus = asyncHandler(async (req, res) => {
   }
 
   const updated = await projectsRepo.updateStatus(id, toStatus);
+
+  // The only realtime emit that fires for a WORKER-initiated change (Start
+  // Work, Submit Work) — secureFunds/completeProject below are business-
+  // only actions with their own emits.
+  emitProjectEvent(updated, "STATUS_CHANGED", { status: toStatus, actorRole: req.user.role });
+
   res.json({ data: updated });
 });
 
