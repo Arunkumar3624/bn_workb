@@ -4,6 +4,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import * as projectsRepo from "../repositories/projects.repository.js";
 import * as submissionsRepo from "../repositories/submissions.repository.js";
 import * as adminRepo from "../repositories/admin.repository.js";
+import { emitProjectEvent } from "../realtime/events.js";
 
 async function mustBeParticipant(req, projectId) {
   const project = await projectsRepo.findById(projectId);
@@ -86,8 +87,15 @@ export const reviewSubmission = asyncHandler(async (req, res) => {
         : `Rejected a ${submission.type} submission${rejectionReason ? `: ${rejectionReason}` : ""}`,
     });
 
-    return updated;
+    const project = await projectsRepo.findById(submission.project_id, client);
+    return { submission: updated, project };
   });
 
-  res.json({ data: result });
+  emitProjectEvent(result.project, "SUBMISSION_REVIEWED", {
+    submissionId: result.submission.id,
+    status: result.submission.status,
+  });
+
+  // Wire shape to the caller is unchanged — still just the submission row.
+  res.json({ data: result.submission });
 });

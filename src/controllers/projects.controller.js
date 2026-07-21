@@ -5,6 +5,7 @@ import { canTransition } from "../domain/projectStatus.js";
 import * as projectsRepo from "../repositories/projects.repository.js";
 import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
+import { emitProjectEvent } from "../realtime/events.js";
 
 const PLATFORM_FEE_PCT_FALLBACK = 8; // schema.sql's projects.platform_fee_pct default
 
@@ -123,6 +124,10 @@ export const secureFunds = asyncHandler(async (req, res) => {
     return { project: updatedProject, transaction: txn };
   });
 
+  // Emitted after commit, never before — the business's own tab already has
+  // this via the HTTP response; this nudges the worker's open tab live.
+  emitProjectEvent(result.project, "FUNDS_SECURED", { amount: Number(result.project.budget) });
+
   res.json({ data: result });
 });
 
@@ -195,6 +200,8 @@ export const completeProject = asyncHandler(async (req, res) => {
   });
   // ^ transaction() commits here if we reached this line, or has already
   // rolled back and re-thrown if anything above threw.
+
+  emitProjectEvent(result.project, "COMPLETED", { earnings: result.earnings, fee: result.fee });
 
   res.json({ data: result });
 });

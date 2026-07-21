@@ -22,7 +22,9 @@ app.use((_req, res, next) => {
 
 // Deployed frontend + local Vite dev server. FRONTEND_URL lets a future
 // deploy add/change the allowed origin without a code change.
-const allowedOrigins = [
+// Exported so the Socket.IO layer (realtime/socket.js) shares this exact
+// allowlist instead of keeping a second copy in sync by hand.
+export const allowedOrigins = [
   "http://localhost:5173",
   "https://wb-sdc9.onrender.com",
   process.env.FRONTEND_URL,

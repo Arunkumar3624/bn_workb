@@ -2,6 +2,23 @@ import jwt from "jsonwebtoken";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
+// Shared by the HTTP `guard` below and the Socket.IO auth handshake
+// (realtime/socket.js) — one place decides what a valid token is.
+export function verifyAccessToken(token) {
+  let payload;
+  try {
+    payload = jwt.verify(token, mustGetJwtSecret());
+  } catch {
+    throw ApiError.unauthorized("Invalid or expired token.");
+  }
+
+  if (!payload?.sub || !payload?.role) {
+    throw ApiError.unauthorized("Token payload is missing required claims (sub, role).");
+  }
+
+  return { id: payload.sub, role: payload.role };
+}
+
 // Verifies the Bearer JWT and attaches { id, role } to req.user. Applied to
 // every router except /api/profiles (public profiles are the one resource
 // that's readable unauthenticated — see routes/profiles.routes.js).
@@ -16,18 +33,7 @@ export const guard = asyncHandler(async (req, _res, next) => {
     throw ApiError.unauthorized("Missing or malformed Authorization header — expected 'Bearer <token>'.");
   }
 
-  let payload;
-  try {
-    payload = jwt.verify(token, mustGetJwtSecret());
-  } catch {
-    throw ApiError.unauthorized("Invalid or expired token.");
-  }
-
-  if (!payload?.sub || !payload?.role) {
-    throw ApiError.unauthorized("Token payload is missing required claims (sub, role).");
-  }
-
-  req.user = { id: payload.sub, role: payload.role };
+  req.user = verifyAccessToken(token);
   next();
 });
 
