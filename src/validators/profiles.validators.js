@@ -11,5 +11,6 @@ export const listProfilesQuerySchema = z.object({
 export const updateOwnProfileSchema = z.object({
   avatarUrl: z.string().url().optional(),
   title: z.string().trim().min(1).max(200).optional(),
+  phone: z.string().regex(/^\d{10}$/, "Enter exactly 10 numeric digits").optional(),
   profilePatch: z.record(z.string(), z.unknown()).optional(),
 });

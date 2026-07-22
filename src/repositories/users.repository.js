@@ -20,12 +20,20 @@ export async function findByPhone(phone) {
 // Only ever called with role 'worker' | 'business' — see
 // auth.validators.js's registerSchema, which excludes 'admin' at the
 // boundary so this repo function never has to re-check it.
-export async function create({ role, name, email, phone, passwordHash }) {
+//
+// emailVerified defaults true (matching the column default) so every
+// existing caller — create-admin.js, the RetailX/Priya seed script — keeps
+// working unchanged. POST /api/auth/verify-otp is the only caller that
+// passes true explicitly and deliberately — a `users` row for a fresh
+// signup is only ever created there, once the OTP check already succeeded
+// (see pending_signups / auth.controller.js), so it's always verified from
+// the moment it exists.
+export async function create({ role, name, email, phone, passwordHash, emailVerified = true }) {
   const { rows } = await query(
-    `INSERT INTO users (role, name, email, phone, password_hash)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO users (role, name, email, phone, password_hash, email_verified)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [role, name, email, phone ?? null, passwordHash]
+    [role, name, email, phone ?? null, passwordHash, emailVerified]
   );
   return rows[0];
 }
@@ -48,19 +56,20 @@ export async function listPublicProfiles({ role }) {
   return rows;
 }
 
-// The caller's own profile edit (PATCH /api/profiles/me) — avatarUrl/title
-// overwrite when provided, profilePatch is shallow-merged into the existing
-// `profile` JSONB via Postgres's `||` so an edit to one field (e.g. bio)
-// never clobbers sibling fields (e.g. skills) the caller didn't send.
-export async function updateSelf(id, { avatarUrl, title, profilePatch }) {
+// The caller's own profile edit (PATCH /api/profiles/me) — avatarUrl/title/
+// phone overwrite when provided, profilePatch is shallow-merged into the
+// existing `profile` JSONB via Postgres's `||` so an edit to one field (e.g.
+// bio) never clobbers sibling fields (e.g. skills) the caller didn't send.
+export async function updateSelf(id, { avatarUrl, title, phone, profilePatch }) {
   const { rows } = await query(
     `UPDATE users
      SET avatar_url = COALESCE($2, avatar_url),
          title = COALESCE($3, title),
-         profile = profile || $4::jsonb
+         phone = COALESCE($4, phone),
+         profile = profile || $5::jsonb
      WHERE id = $1
      RETURNING *`,
-    [id, avatarUrl ?? null, title ?? null, JSON.stringify(profilePatch ?? {})]
+    [id, avatarUrl ?? null, title ?? null, phone ?? null, JSON.stringify(profilePatch ?? {})]
   );
   return rows[0] ?? null;
 }

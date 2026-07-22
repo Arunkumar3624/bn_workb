@@ -1,0 +1,12 @@
+-- Adds email_verified, a DIFFERENT concept from users.verified (that column
+-- is the admin's manual identity/payment-verification flag driven by
+-- AdminVerificationsTab.jsx — see schema.sql's comment on it). Conflating
+-- the two would mean confirming a registration OTP silently marks an
+-- account as admin-approved without any admin ever looking at it.
+--
+-- DEFAULT TRUE is deliberate: this must not retroactively lock any
+-- pre-existing account (seed/demo/admin-script accounts, anything created
+-- before this migration ran) out of login — none of them will ever go
+-- through the new register-then-verify flow. Only POST /api/auth/register
+-- explicitly writes email_verified = false for a brand-new signup.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;

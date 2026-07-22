@@ -20,6 +20,12 @@ export const listVerifications = asyncHandler(async (_req, res) => {
   res.json({ data });
 });
 
+// GET /api/admin/users — the full user directory for the admin Users tab.
+export const listAllUsers = asyncHandler(async (_req, res) => {
+  const data = await adminRepo.listAllUsers();
+  res.json({ data });
+});
+
 // PATCH /api/admin/verify/:id — body: { approved: boolean }
 // Approve sets users.is_verified (verified column); Reject leaves it false
 // but still writes an audit row, so there's a record even though nothing

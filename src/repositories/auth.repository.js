@@ -1,47 +1,30 @@
 import { query } from "../db/client.js";
 
-export async function findUserByIdentifier(identifier, role) {
-  const isPhone = /^\d{10}$/.test(identifier);
-  const column = isPhone ? "phone" : "email";
-  const { rows } = await query(
-    `SELECT * FROM users WHERE ${column} = $1 AND role = $2 LIMIT 1`,
-    [identifier, role]
-  );
-  return rows[0] ?? null;
+export async function deletePendingSignup(email) {
+  await query(`DELETE FROM pending_signups WHERE email = $1`, [email]);
 }
 
-export async function findAnyUserByIdentifier(identifier) {
-  const isPhone = /^\d{10}$/.test(identifier);
-  const column = isPhone ? "phone" : "email";
+export async function createPendingSignup({ email, role, name, phone, passwordHash, otpCode, expiresAt }) {
   const { rows } = await query(
-    `SELECT * FROM users WHERE ${column} = $1 LIMIT 1`,
-    [identifier]
-  );
-  return rows[0] ?? null;
-}
-
-export async function deleteOtpsForIdentifier(identifier, role) {
-  await query(`DELETE FROM auth_otps WHERE identifier = $1 AND role = $2`, [identifier, role]);
-}
-
-export async function createOtp({ identifier, role, code, expiresAt }) {
-  const { rows } = await query(
-    `INSERT INTO auth_otps (identifier, role, otp_code, expires_at)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO pending_signups (email, role, name, phone, password_hash, otp_code, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [identifier, role, code, expiresAt]
+    [email, role, name, phone ?? null, passwordHash, otpCode, expiresAt]
   );
   return rows[0];
 }
 
-export async function findLatestOtp(identifier, role) {
+export async function findPendingSignup(email) {
+  const { rows } = await query(`SELECT * FROM pending_signups WHERE email = $1`, [email]);
+  return rows[0] ?? null;
+}
+
+// Resend: update in place so name/phone/password_hash stay put — only the
+// OTP and its clock reset. created_at doubles as "OTP last sent at".
+export async function refreshPendingSignupOtp(email, { otpCode, expiresAt }) {
   const { rows } = await query(
-    `SELECT * FROM auth_otps
-     WHERE identifier = $1
-       AND role = $2
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    [identifier, role]
+    `UPDATE pending_signups SET otp_code = $2, expires_at = $3, created_at = now() WHERE email = $1 RETURNING *`,
+    [email, otpCode, expiresAt]
   );
   return rows[0] ?? null;
 }

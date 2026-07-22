@@ -56,6 +56,17 @@ export const createProject = asyncHandler(async (req, res) => {
     budget: req.body.budget,
     deadline: req.body.deadline,
   });
+
+  // The worker has never seen this project before now, so they can't have
+  // joined its project:<id> room yet — emitProjectEvent still reaches them
+  // via their private user:<id> room, joined automatically on connect.
+  const joined = await projectsRepo.findByIdJoined(project.id);
+  emitProjectEvent(joined, "PROJECT_CREATED", {
+    title: project.title,
+    budget: Number(project.budget),
+    businessName: joined.business_name,
+  });
+
   res.status(201).json({ data: project });
 });
 

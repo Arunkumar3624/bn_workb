@@ -1,16 +1,31 @@
+import nodemailer from "nodemailer";
 import { ApiError } from "../utils/ApiError.js";
 
-const RESEND_EMAILS_URL = "https://api.resend.com/emails";
+let transporter = null;
 
-function requireEmailConfig() {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.OTP_FROM_EMAIL;
+// Lazily created and memoized — importing this module never throws even if
+// SMTP env vars are absent (mirrors the old requireEmailConfig() gate,
+// which only threw when actually called, not at import time).
+function getTransporter() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, OTP_FROM_EMAIL } = process.env;
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !OTP_FROM_EMAIL) return null;
 
-  if (!apiKey || !from) {
-    throw ApiError.internal("OTP email delivery is not configured.");
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT),
+      secure: Number(SMTP_PORT) === 465, // 465 = implicit TLS, 587 = STARTTLS
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
   }
+  return transporter;
+}
 
-  return { apiKey, from };
+// The caller (auth.controller.js) decides what "not configured" means —
+// console-log fallback in dev, hard failure in production — same shape as
+// the old inline `RESEND_API_KEY && OTP_FROM_EMAIL` check.
+export function isEmailConfigured() {
+  return getTransporter() !== null;
 }
 
 function escapeHtml(value) {
@@ -23,19 +38,14 @@ function escapeHtml(value) {
 }
 
 export async function sendOtpEmail({ to, otpCode, expiresInMinutes }) {
-  const { apiKey, from } = requireEmailConfig();
+  const transport = getTransporter();
+  if (!transport) throw ApiError.internal("OTP email delivery is not configured.");
   const safeCode = escapeHtml(otpCode);
 
-  const response = await fetch(RESEND_EMAILS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "User-Agent": "WorkBridge OTP/1.0",
-    },
-    body: JSON.stringify({
-      from,
-      to: [to],
+  try {
+    await transport.sendMail({
+      from: process.env.OTP_FROM_EMAIL,
+      to,
       subject: "Your WorkBridge verification code",
       text: `Your WorkBridge verification code is ${otpCode}. It expires in ${expiresInMinutes} minutes.`,
       html: `
@@ -46,15 +56,9 @@ export async function sendOtpEmail({ to, otpCode, expiresInMinutes }) {
           <p>If you did not request this code, you can ignore this email.</p>
         </div>
       `,
-    }),
-  });
-
-  const result = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.error("[email:otp] Resend delivery failed:", result);
+    });
+  } catch (err) {
+    console.error("[email:otp] SMTP delivery failed:", err);
     throw ApiError.internal("Could not send the verification email.");
   }
-
-  return result;
 }

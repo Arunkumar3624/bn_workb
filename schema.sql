@@ -67,6 +67,11 @@ CREATE TABLE users (
   avatar_url        TEXT,
   title             TEXT,                          -- e.g. "Full-Stack Developer" (worker) / "Retail" (business industry)
   verified          BOOLEAN NOT NULL DEFAULT FALSE, -- ID-verified worker / payment-verified business
+  -- Registration-OTP confirmed — NOT the same flag as `verified` above (see
+  -- migrations/005_email_verified.sql). Defaults TRUE for fresh-install/seed
+  -- rows; only POST /api/auth/register explicitly sets this FALSE for a new
+  -- signup awaiting its OTP.
+  email_verified    BOOLEAN NOT NULL DEFAULT TRUE,
   behavior_score    SMALLINT,                       -- 0–1000 trust metric; workers/businesses only
   rating            NUMERIC(3, 2),                  -- cached avg of reviews.rating for this user
   reviews_count     INTEGER NOT NULL DEFAULT 0,
@@ -89,6 +94,10 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_role ON users (role);
 
+-- No longer written to by the app — superseded by pending_signups below,
+-- which holds the OTP alongside the rest of a not-yet-verified signup.
+-- Left in place rather than dropped since removing a table is a
+-- destructive, irreversible migration with no functional upside here.
 CREATE TABLE IF NOT EXISTS auth_otps (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   identifier   TEXT NOT NULL,
@@ -100,6 +109,24 @@ CREATE TABLE IF NOT EXISTS auth_otps (
 
 CREATE INDEX IF NOT EXISTS idx_auth_otps_identifier_role ON auth_otps (identifier, role);
 CREATE INDEX IF NOT EXISTS idx_auth_otps_expires_at ON auth_otps (expires_at);
+
+-- Holds signup details temporarily between POST /api/auth/register and a
+-- successful POST /api/auth/verify-otp — see migrations/006_pending_signups.sql
+-- for the full rationale (the real `users` row is only created once
+-- verification succeeds, so an abandoned signup never touches `users`).
+CREATE TABLE IF NOT EXISTS pending_signups (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email          CITEXT NOT NULL UNIQUE,
+  role           user_role NOT NULL,
+  name           TEXT NOT NULL,
+  phone          TEXT,
+  password_hash  TEXT NOT NULL,
+  otp_code       TEXT NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(), -- doubles as "OTP last (re)sent at"
+  expires_at     TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_signups_email ON pending_signups (email);
 
 CREATE TRIGGER trg_users_updated_at
   BEFORE UPDATE ON users

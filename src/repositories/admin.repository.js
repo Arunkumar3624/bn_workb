@@ -2,12 +2,28 @@ import { query } from "../db/client.js";
 
 // ─── Verification queue ──────────────────────────────────────────────────────
 
+// phone is included here deliberately (unlike public_user_profiles) — this
+// route is admin-only (guard + requireRole("admin") in admin.routes.js), and
+// support needs a number to actually call while verifying an account.
 export async function listPendingVerifications() {
   const { rows } = await query(
-    `SELECT id, name, role, title, created_at
+    `SELECT id, name, role, title, phone, created_at
      FROM users
      WHERE verified = false AND role IN ('worker', 'business')
      ORDER BY created_at ASC`
+  );
+  return rows;
+}
+
+// Full user directory for the admin "Users" tab — email/phone included for
+// the same reason as above (admin-only route). Both verification flags are
+// returned since they're different facts: email_verified (registration OTP)
+// vs verified (manual ID/payment review, see listPendingVerifications).
+export async function listAllUsers() {
+  const { rows } = await query(
+    `SELECT id, name, email, phone, role, email_verified, verified, created_at
+     FROM users
+     ORDER BY created_at DESC`
   );
   return rows;
 }

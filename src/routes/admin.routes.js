@@ -7,6 +7,7 @@ import {
   getPlatformStats,
   listDisputes,
   resolveDispute,
+  listAllUsers,
 } from "../controllers/admin.controller.js";
 import { listPendingSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
@@ -21,6 +22,8 @@ adminRouter.use(guard, requireRole("admin"));
 
 adminRouter.get("/verify", listVerifications);
 adminRouter.patch("/verify/:id", verifyUser);
+
+adminRouter.get("/users", listAllUsers);
 
 adminRouter.get("/stats", getPlatformStats);
 

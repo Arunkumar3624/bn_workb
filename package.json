@@ -9,7 +9,9 @@
     "migrate": "node scripts/migrate.js",
     "migrate:otp": "node scripts/migrate-otp.js",
     "create-admin": "node scripts/create-admin.js",
-    "seed:retailx": "node scripts/seed-retailx-demo.js"
+    "seed:retailx": "node scripts/seed-retailx-demo.js",
+    "migrate:email-verified": "node scripts/migrate-email-verified.js",
+    "migrate:pending-signups": "node scripts/migrate-pending-signups.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -17,6 +19,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^9.0.3",
     "pg": "^8.22.0",
     "socket.io": "^4.8.3",
     "zod": "^3.23.8"

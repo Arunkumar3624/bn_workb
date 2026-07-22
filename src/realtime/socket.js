@@ -1,5 +1,5 @@
 import { Server } from "socket.io";
-import { allowedOrigins } from "../app.js";
+import { isAllowedOrigin } from "../app.js";
 import { verifyAccessToken } from "../middleware/guard.js";
 import * as projectsRepo from "../repositories/projects.repository.js";
 
@@ -44,7 +44,7 @@ async function handleProjectJoin(socket, projectId, ack) {
 
 export function initSocket(httpServer) {
   io = new Server(httpServer, {
-    cors: { origin: allowedOrigins },
+    cors: { origin: (origin, callback) => callback(null, isAllowedOrigin(origin)) },
   });
 
   io.use(authenticate);
