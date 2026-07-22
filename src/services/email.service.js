@@ -16,6 +16,12 @@ function getTransporter() {
       port: Number(SMTP_PORT),
       secure: Number(SMTP_PORT) === 465, // 465 = implicit TLS, 587 = STARTTLS
       auth: { user: SMTP_USER, pass: SMTP_PASS },
+      // Nodemailer's defaults leave a failed connection attempt hanging for
+      // ~2 minutes before giving up — a terrible wait for a registration
+      // form. Fail fast instead; a real SMTP server responds in seconds.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     });
   }
   return transporter;
