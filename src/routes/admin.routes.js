@@ -10,7 +10,7 @@ import {
   listAllUsers,
   listTransactions,
 } from "../controllers/admin.controller.js";
-import { listPendingSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
+import { listPendingSubmissions, listReviewedSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
 
 export const adminRouter = Router();
@@ -35,4 +35,5 @@ adminRouter.get("/transactions", listTransactions);
 
 // The Trust Checker's moderation queue.
 adminRouter.get("/submissions", listPendingSubmissions);
+adminRouter.get("/submissions/history", listReviewedSubmissions);
 adminRouter.patch("/submissions/:id", validate(reviewSubmissionSchema), reviewSubmission);

@@ -42,6 +42,25 @@ export async function listPendingReview() {
   return rows;
 }
 
+// The other half of the moderation queue — what an admin has already
+// decided on, newest decision first. Content Review's pending list used to
+// be the only view; once an item left PENDING_REVIEW it had nowhere to be
+// seen again, so there was no way to confirm what you'd already approved
+// or rejected. Capped at 200 — this is a review log, not a full archive.
+export async function listReviewed() {
+  const { rows } = await query(
+    `SELECT s.*, u.name AS submitted_by_name, p.title AS project_title,
+            p.business_id, p.worker_id
+     FROM submissions s
+     JOIN public_user_profiles u ON u.id = s.submitted_by
+     JOIN projects p ON p.id = s.project_id
+     WHERE s.status IN ('APPROVED', 'REJECTED')
+     ORDER BY s.reviewed_at DESC
+     LIMIT 200`
+  );
+  return rows;
+}
+
 export async function review(client, id, { status, reviewedBy, rejectionReason }) {
   const { rows } = await client.query(
     `UPDATE submissions

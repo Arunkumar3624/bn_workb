@@ -69,6 +69,14 @@ export const listPendingSubmissions = asyncHandler(async (_req, res) => {
   res.json({ data });
 });
 
+// GET /api/admin/submissions/history — everything already approved/rejected,
+// so an admin can confirm what actually happened after an item leaves the
+// pending queue instead of it just disappearing.
+export const listReviewedSubmissions = asyncHandler(async (_req, res) => {
+  const data = await submissionsRepo.listReviewed();
+  res.json({ data });
+});
+
 // PATCH /api/admin/submissions/:id — body: { approved: boolean, rejectionReason? }
 export const reviewSubmission = asyncHandler(async (req, res) => {
   const { id } = req.params;
