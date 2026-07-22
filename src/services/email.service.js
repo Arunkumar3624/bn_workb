@@ -1,24 +1,37 @@
+import nodemailer from "nodemailer";
 import { ApiError } from "../utils/ApiError.js";
 
-const RESEND_EMAILS_URL = "https://api.resend.com/emails";
+let transporter = null;
 
-// Render's network blocks outbound SMTP entirely (confirmed: both port 465
-// and 587 time out at the network level, regardless of credentials or DNS
-// resolution — see the ENETUNREACH/ETIMEDOUT investigation this replaces).
-// Resend's HTTPS API sidesteps that completely; port 443 outbound is never
-// blocked by any host, or the entire internet breaks.
-function requireEmailConfig() {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.OTP_FROM_EMAIL;
+// Lazily created and memoized — importing this module never throws even if
+// SMTP env vars are absent (mirrors the old requireEmailConfig() gate,
+// which only threw when actually called, not at import time).
+function getTransporter() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, OTP_FROM_EMAIL } = process.env;
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !OTP_FROM_EMAIL) return null;
 
-  if (!apiKey || !from) return null;
-  return { apiKey, from };
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT),
+      secure: Number(SMTP_PORT) === 465, // 465 = implicit TLS; 587/2525 = STARTTLS
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+      // Nodemailer's defaults leave a failed connection attempt hanging for
+      // ~2 minutes before giving up — a terrible wait for a registration
+      // form. Fail fast instead; a real SMTP server responds in seconds.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
+    });
+  }
+  return transporter;
 }
 
 // The caller (auth.controller.js) decides what "not configured" means —
-// console-log fallback in dev, hard failure in production.
+// console-log fallback in dev, hard failure in production — same shape as
+// the old inline `RESEND_API_KEY && OTP_FROM_EMAIL` check.
 export function isEmailConfigured() {
-  return requireEmailConfig() !== null;
+  return getTransporter() !== null;
 }
 
 function escapeHtml(value) {
@@ -31,46 +44,27 @@ function escapeHtml(value) {
 }
 
 export async function sendOtpEmail({ to, otpCode, expiresInMinutes }) {
-  const config = requireEmailConfig();
-  if (!config) throw ApiError.internal("OTP email delivery is not configured.");
-  const { apiKey, from } = config;
+  const transport = getTransporter();
+  if (!transport) throw ApiError.internal("OTP email delivery is not configured.");
   const safeCode = escapeHtml(otpCode);
 
-  let response;
   try {
-    response = await fetch(RESEND_EMAILS_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "User-Agent": "WorkBridge OTP/1.0",
-      },
-      body: JSON.stringify({
-        from,
-        to: [to],
-        subject: "Your WorkBridge verification code",
-        text: `Your WorkBridge verification code is ${otpCode}. It expires in ${expiresInMinutes} minutes.`,
-        html: `
-          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
-            <p>Your WorkBridge verification code is:</p>
-            <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:18px 0">${safeCode}</p>
-            <p>This code expires in ${expiresInMinutes} minutes.</p>
-            <p>If you did not request this code, you can ignore this email.</p>
-          </div>
-        `,
-      }),
+    await transport.sendMail({
+      from: process.env.OTP_FROM_EMAIL,
+      to,
+      subject: "Your WorkBridge verification code",
+      text: `Your WorkBridge verification code is ${otpCode}. It expires in ${expiresInMinutes} minutes.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+          <p>Your WorkBridge verification code is:</p>
+          <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:18px 0">${safeCode}</p>
+          <p>This code expires in ${expiresInMinutes} minutes.</p>
+          <p>If you did not request this code, you can ignore this email.</p>
+        </div>
+      `,
     });
   } catch (err) {
-    console.error("[email:otp] Resend request failed:", err);
+    console.error("[email:otp] SMTP delivery failed:", err);
     throw ApiError.internal("Could not send the verification email.");
   }
-
-  const result = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    console.error("[email:otp] Resend delivery failed:", result);
-    throw ApiError.internal("Could not send the verification email.");
-  }
-
-  return result;
 }
