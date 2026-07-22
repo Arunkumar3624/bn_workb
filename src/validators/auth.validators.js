@@ -25,3 +25,13 @@ export const verifyOtpSchema = z.object({
 export const resendOtpSchema = z.object({
   email: emailSchema,
 });
+
+export const forgotPasswordSchema = z.object({
+  email: emailSchema,
+});
+
+export const resetPasswordSchema = z.object({
+  email: emailSchema,
+  otp: z.string().trim().regex(/^[0-9]{6}$/, "Enter the 6-digit code."),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+});

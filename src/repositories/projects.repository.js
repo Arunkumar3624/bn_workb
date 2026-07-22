@@ -79,14 +79,19 @@ export async function create({ businessId, workerId, title, description, budget,
   return rows[0];
 }
 
-export async function updateStatus(id, status, client = { query }) {
+export async function updateStatus(id, status, client = { query }, note = null) {
+  const timelineEntry = note
+    ? `jsonb_build_object('status', $2::text, 'at', now(), 'note', $3::text)`
+    : `jsonb_build_object('status', $2::text, 'at', now())`;
+  const params = note ? [id, status, note] : [id, status];
+
   const { rows } = await client.query(
     `UPDATE projects
      SET status = $2::project_status,
-         timeline = timeline || jsonb_build_object('status', $2::text, 'at', now())::jsonb
+         timeline = timeline || ${timelineEntry}::jsonb
      WHERE id = $1
      RETURNING *`,
-    [id, status]
+    params
   );
   return rows[0] ?? null;
 }

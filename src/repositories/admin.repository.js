@@ -99,6 +99,25 @@ export async function listDisputedProjects() {
   return rows;
 }
 
+// ─── Transactions / invoices ──────────────────────────────────────────────────
+
+// One row per project, not per ledger entry — a completed project has 2-3
+// transactions rows (FUNDS_SECURED/PAYOUT/PLATFORM_FEE), but the admin
+// "Transaction History" table wants one consolidated invoice-style row.
+// INVITED/ACCEPTED/CANCELLED never had money move, so they're excluded —
+// an "invoice" only exists once funds are at least secured.
+export async function listAllInvoices() {
+  const { rows } = await query(
+    `SELECT p.*, w.name AS worker_name, b.name AS business_name
+     FROM projects p
+     JOIN public_user_profiles w ON w.id = p.worker_id
+     JOIN public_user_profiles b ON b.id = p.business_id
+     WHERE p.status IN ('FUNDS_SECURED', 'WORK_IN_PROGRESS', 'FILES_SUBMITTED', 'COMPLETED', 'DISPUTED')
+     ORDER BY p.updated_at DESC`
+  );
+  return rows;
+}
+
 // ─── Platform audit log ───────────────────────────────────────────────────────
 
 export async function insertPlatformLog(client, { adminId, action, targetUserId, targetProjectId, notes }) {

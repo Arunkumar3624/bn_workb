@@ -1,5 +1,40 @@
 import { query } from "../db/client.js";
 
+// ─── Password reset codes (auth_otps table) ────────────────────────────────
+// This table predates pending_signups — it was the original OTP store back
+// when sign-in also required a code. Superseded there, but its exact shape
+// (identifier/role/otp_code/expires_at) is a perfect fit for password-reset
+// codes, so it's reused here rather than standing up a second near-identical
+// table. Distinctly named from the pending-signup functions above so it's
+// obvious at a glance which table each set operates on.
+
+export async function deletePasswordResetOtp(email, role) {
+  await query(`DELETE FROM auth_otps WHERE identifier = $1 AND role = $2`, [email, role]);
+}
+
+export async function createPasswordResetOtp({ email, role, code, expiresAt }) {
+  const { rows } = await query(
+    `INSERT INTO auth_otps (identifier, role, otp_code, expires_at)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [email, role, code, expiresAt]
+  );
+  return rows[0];
+}
+
+export async function findLatestPasswordResetOtp(email, role) {
+  const { rows } = await query(
+    `SELECT * FROM auth_otps
+     WHERE identifier = $1 AND role = $2
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [email, role]
+  );
+  return rows[0] ?? null;
+}
+
+// ─── Pending signups (registration OTP) ────────────────────────────────────
+
 export async function deletePendingSignup(email) {
   await query(`DELETE FROM pending_signups WHERE email = $1`, [email]);
 }

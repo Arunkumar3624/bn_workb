@@ -75,7 +75,7 @@ export const createProject = asyncHandler(async (req, res) => {
 // see completeProject below for why that has to be its own endpoint.
 export const updateProjectStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status: toStatus } = req.body;
+  const { status: toStatus, note } = req.body;
 
   const project = await projectsRepo.findById(id);
   if (!project) throw ApiError.notFound("Project not found.");
@@ -92,12 +92,12 @@ export const updateProjectStatus = asyncHandler(async (req, res) => {
     );
   }
 
-  const updated = await projectsRepo.updateStatus(id, toStatus);
+  const updated = await projectsRepo.updateStatus(id, toStatus, undefined, note);
 
   // The only realtime emit that fires for a WORKER-initiated change (Start
   // Work, Submit Work) — secureFunds/completeProject below are business-
   // only actions with their own emits.
-  emitProjectEvent(updated, "STATUS_CHANGED", { status: toStatus, actorRole: req.user.role });
+  emitProjectEvent(updated, "STATUS_CHANGED", { status: toStatus, actorRole: req.user.role, note });
 
   res.json({ data: updated });
 });

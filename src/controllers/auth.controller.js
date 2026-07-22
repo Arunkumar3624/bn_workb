@@ -5,11 +5,12 @@ import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as authRepo from "../repositories/auth.repository.js";
-import { sendOtpEmail, isEmailConfigured } from "../services/email.service.js";
+import { sendOtpEmail, sendPasswordResetEmail, isEmailConfigured } from "../services/email.service.js";
 
 const SALT_ROUNDS = 10;
 const TOKEN_TTL = "7d";
 const OTP_TTL_MINUTES = 10;
+const PASSWORD_RESET_TTL_MINUTES = 15;
 const OTP_RESEND_SECONDS = 60;
 
 // The caller's own profile — allowed to include email/phone (unlike
@@ -56,9 +57,9 @@ async function assertSignupAvailable({ email, phone }) {
 // decide what to clean up if this throws (register wipes the pending
 // signup entirely; resendOtp leaves it in place so a signup in progress
 // never loses its details just because one delivery attempt failed).
-async function deliverOtp({ email, role, otpCode }) {
+async function deliverOtp({ email, role, otpCode, expiresInMinutes = OTP_TTL_MINUTES, sendFn = sendOtpEmail }) {
   if (isEmailConfigured()) {
-    await sendOtpEmail({ to: email, otpCode, expiresInMinutes: OTP_TTL_MINUTES });
+    await sendFn({ to: email, otpCode, expiresInMinutes });
   } else if (process.env.NODE_ENV !== "production") {
     console.log(`[auth:otp] ${email} (${role}) -> ${otpCode}`);
   } else {
@@ -205,6 +206,82 @@ export const login = asyncHandler(async (req, res) => {
   }
 
   res.json({ data: { token: issueToken(user), user: toSelf(user) } });
+});
+
+// POST /api/auth/forgot-password — public. body: { email }. Reuses the
+// auth_otps table (unused since sign-in dropped OTP — see auth.repository.js)
+// for a 15-minute reset code. Responds with the same generic message
+// whether or not the account exists, so this endpoint can't be used to
+// confirm which emails are registered.
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  const genericResponse = {
+    data: {
+      message: `If an account exists for ${email}, a password reset code has been sent.`,
+      email,
+      expiresInSeconds: PASSWORD_RESET_TTL_MINUTES * 60,
+      resendAfterSeconds: OTP_RESEND_SECONDS,
+    },
+  };
+
+  const user = await usersRepo.findByEmail(email);
+  if (!user) {
+    res.json(genericResponse);
+    return;
+  }
+
+  const previous = await authRepo.findLatestPasswordResetOtp(email, user.role);
+  if (previous) {
+    const ageSeconds = (Date.now() - new Date(previous.created_at).getTime()) / 1000;
+    if (ageSeconds < OTP_RESEND_SECONDS) {
+      throw new ApiError(
+        429,
+        `Please wait ${Math.ceil(OTP_RESEND_SECONDS - ageSeconds)} seconds before requesting another code.`
+      );
+    }
+  }
+
+  const otpCode = generateOtpCode();
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000).toISOString();
+
+  await authRepo.deletePasswordResetOtp(email, user.role);
+  await authRepo.createPasswordResetOtp({ email, role: user.role, code: hashOtp(email, user.role, otpCode), expiresAt });
+
+  await deliverOtp({
+    email,
+    role: user.role,
+    otpCode,
+    expiresInMinutes: PASSWORD_RESET_TTL_MINUTES,
+    sendFn: sendPasswordResetEmail,
+  });
+
+  res.json(genericResponse);
+});
+
+// POST /api/auth/reset-password — public. body: { email, otp, newPassword }.
+// Success logs the user in immediately (same auto-login pattern as
+// verify-otp) — no separate login step needed after a reset.
+export const resetPassword = asyncHandler(async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+
+  const user = await usersRepo.findByEmail(email);
+  if (!user) throw ApiError.unauthorized("This code is invalid or has expired.");
+
+  const otpRow = await authRepo.findLatestPasswordResetOtp(email, user.role);
+  if (!otpRow || new Date(otpRow.expires_at).getTime() <= Date.now()) {
+    await authRepo.deletePasswordResetOtp(email, user.role);
+    throw ApiError.unauthorized("This code is invalid or has expired.");
+  }
+
+  if (!otpMatches(otpRow.otp_code, hashOtp(email, user.role, otp))) {
+    throw ApiError.unauthorized("This code is invalid or has expired.");
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  const updatedUser = await usersRepo.updatePassword(user.id, passwordHash);
+
+  await authRepo.deletePasswordResetOtp(email, user.role);
+  res.json({ data: { token: issueToken(updatedUser), user: toSelf(updatedUser) } });
 });
 
 // GET /api/auth/me — behind `guard`. req.user.id comes from the verified

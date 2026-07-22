@@ -29,11 +29,12 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-export async function sendOtpEmail({ to, otpCode, expiresInMinutes }) {
+// Shared by sendOtpEmail/sendPasswordResetEmail — same transport, error
+// handling, and Resend request shape; only subject/body content differs.
+async function sendEmail({ to, subject, text, html }) {
   const config = requireEmailConfig();
   if (!config) throw ApiError.internal("OTP email delivery is not configured.");
   const { apiKey, from } = config;
-  const safeCode = escapeHtml(otpCode);
 
   let response;
   try {
@@ -44,32 +45,53 @@ export async function sendOtpEmail({ to, otpCode, expiresInMinutes }) {
         "Content-Type": "application/json",
         "User-Agent": "WorkBridge OTP/1.0",
       },
-      body: JSON.stringify({
-        from,
-        to: [to],
-        subject: "Your WorkBridge verification code",
-        text: `Your WorkBridge verification code is ${otpCode}. It expires in ${expiresInMinutes} minutes.`,
-        html: `
-          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
-            <p>Your WorkBridge verification code is:</p>
-            <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:18px 0">${safeCode}</p>
-            <p>This code expires in ${expiresInMinutes} minutes.</p>
-            <p>If you did not request this code, you can ignore this email.</p>
-          </div>
-        `,
-      }),
+      body: JSON.stringify({ from, to: [to], subject, text, html }),
     });
   } catch (err) {
-    console.error("[email:otp] Resend request failed:", err);
+    console.error("[email] Resend request failed:", err);
     throw ApiError.internal("Could not send the verification email.");
   }
 
   const result = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    console.error("[email:otp] Resend delivery failed:", result);
+    console.error("[email] Resend delivery failed:", result);
     throw ApiError.internal("Could not send the verification email.");
   }
 
   return result;
+}
+
+export async function sendOtpEmail({ to, otpCode, expiresInMinutes }) {
+  const safeCode = escapeHtml(otpCode);
+  return sendEmail({
+    to,
+    subject: "Your WorkBridge verification code",
+    text: `Your WorkBridge verification code is ${otpCode}. It expires in ${expiresInMinutes} minutes.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+        <p>Your WorkBridge verification code is:</p>
+        <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:18px 0">${safeCode}</p>
+        <p>This code expires in ${expiresInMinutes} minutes.</p>
+        <p>If you did not request this code, you can ignore this email.</p>
+      </div>
+    `,
+  });
+}
+
+export async function sendPasswordResetEmail({ to, otpCode, expiresInMinutes }) {
+  const safeCode = escapeHtml(otpCode);
+  return sendEmail({
+    to,
+    subject: "Your WorkBridge password reset code",
+    text: `Your WorkBridge password reset code is ${otpCode}. It expires in ${expiresInMinutes} minutes. If you did not request this, you can ignore this email — your password will not change.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+        <p>Your WorkBridge password reset code is:</p>
+        <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:18px 0">${safeCode}</p>
+        <p>This code expires in ${expiresInMinutes} minutes.</p>
+        <p>If you did not request this, you can ignore this email — your password will not change.</p>
+      </div>
+    `,
+  });
 }

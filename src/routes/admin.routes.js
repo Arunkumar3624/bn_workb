@@ -8,6 +8,7 @@ import {
   listDisputes,
   resolveDispute,
   listAllUsers,
+  listTransactions,
 } from "../controllers/admin.controller.js";
 import { listPendingSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
@@ -29,6 +30,8 @@ adminRouter.get("/stats", getPlatformStats);
 
 adminRouter.get("/disputes", listDisputes);
 adminRouter.post("/disputes/:id/resolve", resolveDispute);
+
+adminRouter.get("/transactions", listTransactions);
 
 // The Trust Checker's moderation queue.
 adminRouter.get("/submissions", listPendingSubmissions);

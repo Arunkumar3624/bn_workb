@@ -171,6 +171,14 @@ export const resolveDispute = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+// ─── Transaction History ──────────────────────────────────────────────────────
+
+// GET /api/admin/transactions
+export const listTransactions = asyncHandler(async (_req, res) => {
+  const data = await adminRepo.listAllInvoices();
+  res.json({ data });
+});
+
 function formatAmount(n) {
   return `₹${Number(n).toLocaleString("en-IN")}`;
 }

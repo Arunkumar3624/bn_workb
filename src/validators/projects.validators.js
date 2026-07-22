@@ -24,6 +24,10 @@ export const createProjectSchema = z.object({
 
 export const updateProjectStatusSchema = z.object({
   status: z.enum(PATCHABLE_STATUSES),
+  // Only meaningful for FILES_SUBMITTED -> WORK_IN_PROGRESS today (the
+  // business explaining what needs fixing) — harmless no-op for every
+  // other transition, which simply won't pass one.
+  note: z.string().trim().max(1000).optional(),
 });
 
 export const listProjectsQuerySchema = z.object({

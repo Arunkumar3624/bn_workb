@@ -94,10 +94,11 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_role ON users (role);
 
--- No longer written to by the app — superseded by pending_signups below,
--- which holds the OTP alongside the rest of a not-yet-verified signup.
--- Left in place rather than dropped since removing a table is a
--- destructive, irreversible migration with no functional upside here.
+-- Originally the registration-OTP store; superseded there by
+-- pending_signups below (which holds the OTP alongside the rest of a
+-- not-yet-verified signup). Repurposed for password-reset codes instead of
+-- standing up a near-identical second table — see auth.repository.js's
+-- createPasswordResetOtp/findLatestPasswordResetOtp/deletePasswordResetOtp.
 CREATE TABLE IF NOT EXISTS auth_otps (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   identifier   TEXT NOT NULL,

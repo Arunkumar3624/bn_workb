@@ -74,6 +74,16 @@ export async function updateSelf(id, { avatarUrl, title, phone, profilePatch }) 
   return rows[0] ?? null;
 }
 
+// POST /api/auth/reset-password's only DB write — the reset OTP itself is
+// verified by the caller (auth.controller.js) before this ever runs.
+export async function updatePassword(id, passwordHash) {
+  const { rows } = await query(
+    `UPDATE users SET password_hash = $2 WHERE id = $1 RETURNING *`,
+    [id, passwordHash]
+  );
+  return rows[0] ?? null;
+}
+
 // Row-locks the wallet owner's user row so a concurrent withdrawal/payout
 // can't read a stale balance while this one is in flight.
 export async function findForUpdate(client, id) {

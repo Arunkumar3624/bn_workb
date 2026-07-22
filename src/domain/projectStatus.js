@@ -44,6 +44,13 @@ export function canTransition({ fromStatus, toStatus, actorRole }) {
     return false;
   }
 
+  // The one backward-moving transition in the FSM: business requests a
+  // revision instead of approving, sending the worker back to work with a
+  // (optional) note on what to fix, rather than a full dispute.
+  if (fromStatus === "FILES_SUBMITTED" && toStatus === "WORK_IN_PROGRESS") {
+    return actorRole === "business";
+  }
+
   const expectedNext = nextStatus(fromStatus);
   if (toStatus !== expectedNext) return false;
 
