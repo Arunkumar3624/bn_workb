@@ -16,7 +16,7 @@ const PLATFORM_FEE_PCT_FALLBACK = 8; // schema.sql's projects.platform_fee_pct d
 export const listProjects = asyncHandler(async (req, res) => {
   const { status, role, page, pageSize } = req.query;
 
-  const filters = { status, page, pageSize };
+  const filters = { status, page, pageSize, viewerId: req.user.id };
   if (role === "worker" || req.user.role === "worker") filters.workerId = req.user.id;
   if (role === "business" || req.user.role === "business") filters.businessId = req.user.id;
   // Admins with no ?role filter see everything (no workerId/businessId

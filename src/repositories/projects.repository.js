@@ -33,7 +33,7 @@ export async function findByIdForUpdate(client, id) {
   return rows[0] ?? null;
 }
 
-export async function list({ businessId, workerId, status, page, pageSize }) {
+export async function list({ businessId, workerId, status, page, pageSize, viewerId }) {
   const conditions = [];
   const params = [];
 
@@ -51,13 +51,28 @@ export async function list({ businessId, workerId, status, page, pageSize }) {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // How many approved deliverables are sitting on this project that the
+  // viewer didn't submit themselves — the one client-visible signal for
+  // "there's something to look at here" without building a full read/unread
+  // tracking system. IS DISTINCT FROM (not !=) so a null viewerId (shouldn't
+  // happen — every caller is authenticated) still counts safely instead of
+  // comparing against NULL and silently returning zero rows.
+  params.push(viewerId ?? null);
+  const viewerParamIndex = params.length;
+
   params.push(pageSize, (page - 1) * pageSize);
 
   // Joined so the frontend never has to do an N+1 lookup just to show who
   // a project is with — the public_user_profiles view (not the raw users
   // table) keeps this join from ever leaking email/phone.
   const { rows } = await query(
-    `SELECT p.*, w.name AS worker_name, b.name AS business_name
+    `SELECT p.*, w.name AS worker_name, b.name AS business_name,
+            (SELECT count(*)::int FROM submissions s
+             WHERE s.project_id = p.id
+               AND s.status = 'APPROVED'
+               AND s.submitted_by IS DISTINCT FROM $${viewerParamIndex}
+            ) AS new_deliverables_count
      FROM projects p
      JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
