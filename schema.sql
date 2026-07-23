@@ -11,6 +11,7 @@ CREATE TYPE user_role AS ENUM ('worker', 'business', 'admin');
 -- Mirrors the frontend's PROJECT_STATUS_FLOW exactly (utils/projectStatus.js),
 -- plus two terminal states the demo build never modeled: CANCELLED/DISPUTED.
 CREATE TYPE project_status AS ENUM (
+  'OPEN',              -- public job post, no worker assigned yet — see job_candidates
   'INVITED',           -- business has proposed/invited, worker hasn't responded
   'ACCEPTED',           -- worker accepted (or business hired) but no funds moved yet
   'FUNDS_SECURED',
@@ -155,7 +156,10 @@ CREATE VIEW public_user_profiles AS
 CREATE TABLE projects (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   business_id       UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  worker_id         UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  -- Nullable: an OPEN job post has no worker yet — see job_candidates for
+  -- how one eventually gets assigned (application accepted, or a direct
+  -- invite accepted). Every other status always carries a real worker_id.
+  worker_id         UUID REFERENCES users(id) ON DELETE RESTRICT,
   title             TEXT NOT NULL,
   description       TEXT,
   budget            NUMERIC(12, 2) NOT NULL CHECK (budget > 0),
@@ -192,14 +196,16 @@ DECLARE
   worker_role   user_role;
 BEGIN
   SELECT role INTO business_role FROM users WHERE id = NEW.business_id;
-  SELECT role INTO worker_role   FROM users WHERE id = NEW.worker_id;
-
   IF business_role IS DISTINCT FROM 'business' THEN
     RAISE EXCEPTION 'projects.business_id (%) must reference a user with role = business', NEW.business_id;
   END IF;
 
-  IF worker_role IS DISTINCT FROM 'worker' THEN
-    RAISE EXCEPTION 'projects.worker_id (%) must reference a user with role = worker', NEW.worker_id;
+  -- worker_id is only ever NULL for an OPEN post — nothing to check yet.
+  IF NEW.worker_id IS NOT NULL THEN
+    SELECT role INTO worker_role FROM users WHERE id = NEW.worker_id;
+    IF worker_role IS DISTINCT FROM 'worker' THEN
+      RAISE EXCEPTION 'projects.worker_id (%) must reference a user with role = worker', NEW.worker_id;
+    END IF;
   END IF;
 
   RETURN NEW;
@@ -353,7 +359,7 @@ CREATE TRIGGER trg_submissions_updated_at
   BEFORE UPDATE ON submissions
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- ─── 4. messages ────────────────────────────────────────────────────────────
+-- ─── 7. messages ────────────────────────────────────────────────────────────
 -- Real-time per-project chat — one continuous thread spanning a project's
 -- whole lifecycle (invite through completion), replacing the fake seeded
 -- conversations in WorkerNegotiationInbox.jsx / BusinessNegotiationHub.jsx.
@@ -374,6 +380,44 @@ CREATE TABLE messages (
 );
 
 CREATE INDEX idx_messages_project_id_created_at ON messages (project_id, created_at);
+
+-- ─── 8. job_candidates ──────────────────────────────────────────────────────
+-- The Open Job Board — a project can start life unassigned (worker_id
+-- NULL, status OPEN), visible to every worker on the public feed. Workers
+-- apply, or a business can directly invite one specific worker to an
+-- already-open post without creating a second project — both paths are
+-- "candidacies" against the SAME open project row, and the project itself
+-- is only ever assigned a worker at the moment one candidacy is accepted
+-- (by whichever side didn't initiate it: the business accepts an
+-- application, the worker accepts an invite). Nothing about a pending
+-- candidacy mutates the project row, so the public feed (WHERE status =
+-- 'OPEN') stays accurate for every candidate still deciding — including an
+-- invited worker who hasn't responded yet.
+
+CREATE TYPE job_candidate_source AS ENUM ('APPLICATION', 'INVITE');
+CREATE TYPE job_candidate_status AS ENUM ('PENDING', 'ACCEPTED', 'DECLINED', 'CLOSED');
+
+CREATE TABLE job_candidates (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id    UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  worker_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  source        job_candidate_source NOT NULL,
+  status        job_candidate_status NOT NULL DEFAULT 'PENDING',
+  message       TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at    TIMESTAMPTZ,
+
+  CONSTRAINT uq_job_candidate_project_worker UNIQUE (project_id, worker_id)
+);
+
+CREATE INDEX idx_job_candidates_project_id ON job_candidates (project_id);
+CREATE INDEX idx_job_candidates_worker_id  ON job_candidates (worker_id);
+CREATE INDEX idx_job_candidates_status     ON job_candidates (status);
+
+CREATE TRIGGER trg_job_candidates_updated_at
+  BEFORE UPDATE ON job_candidates
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --

@@ -12,7 +12,21 @@ export function emitProjectEvent(project, type, payload = {}) {
   if (!io) return;
 
   const event = { type, projectId: project.id, ...payload };
-  io.to(userRoom(project.worker_id)).emit("project:event", event);
+  if (project.worker_id) io.to(userRoom(project.worker_id)).emit("project:event", event);
   io.to(userRoom(project.business_id)).emit("project:event", event);
   io.to(projectRoom(project.id)).emit("project:event", event);
+}
+
+// The job board's candidate events (a new invite, "this job was filled by
+// someone else") target one specific user who isn't necessarily a
+// participant on the project yet — an OPEN project's worker_id is null, so
+// emitProjectEvent above can't reach an invited/applying worker at all.
+// Same "user:<id>" room every socket already auto-joins on connect (see
+// realtime/socket.js), just addressed directly instead of derived from a
+// project row.
+export function emitToUser(userId, type, payload = {}) {
+  const io = getIO();
+  if (!io) return;
+
+  io.to(userRoom(userId)).emit("project:event", { type, ...payload });
 }

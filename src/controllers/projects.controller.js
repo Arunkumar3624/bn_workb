@@ -44,9 +44,19 @@ export const getProject = asyncHandler(async (req, res) => {
   res.json({ data: project });
 });
 
-// POST /api/projects — a business creates a new project/invite. Only a
+// GET /api/projects/open — the Job Board feed. Any authenticated worker can
+// browse every OPEN, unassigned post — unlike listProjects above, this is
+// deliberately NOT scoped to "projects I participate in."
+export const listOpenProjects = asyncHandler(async (_req, res) => {
+  const projects = await projectsRepo.listOpen();
+  res.json({ data: projects });
+});
+
+// POST /api/projects — a business creates a new project. Only a
 // business may call this (enforced by requireRole("business") in the
 // router) — the caller becomes businessId, never a client-supplied value.
+// Omitting workerId posts an OPEN job board listing; passing one keeps the
+// original direct-invite behavior (project starts INVITED).
 export const createProject = asyncHandler(async (req, res) => {
   const project = await projectsRepo.create({
     businessId: req.user.id,

@@ -14,8 +14,11 @@ const PATCHABLE_STATUSES = [
   "DISPUTED",
 ];
 
+// workerId omitted entirely posts an OPEN job board listing (see
+// projects.repository.js's create) — the existing direct-invite flow still
+// passes a real workerId and behaves exactly as before this feature existed.
 export const createProjectSchema = z.object({
-  workerId: z.string().uuid(),
+  workerId: z.string().uuid().optional(),
   title: z.string().min(3).max(200),
   description: z.string().max(5000).optional(),
   budget: z.number().positive(),
