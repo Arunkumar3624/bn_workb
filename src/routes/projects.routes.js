@@ -16,6 +16,8 @@ import {
 } from "../controllers/projects.controller.js";
 import { createSubmission, listSubmissions } from "../controllers/submissions.controller.js";
 import { createSubmissionSchema } from "../validators/submissions.validators.js";
+import { listMessages, sendAttachmentMessage, sendMessage } from "../controllers/messages.controller.js";
+import { sendAttachmentMessageSchema, sendMessageSchema } from "../validators/messages.validators.js";
 
 export const projectsRouter = Router();
 
@@ -39,3 +41,13 @@ projectsRouter.post("/:id/complete", requireRole("business"), completeProject);
 // submissions.controller.js's listSubmissions for the visibility rule).
 projectsRouter.post("/:id/submissions", validate(createSubmissionSchema), createSubmission);
 projectsRouter.get("/:id/submissions", listSubmissions);
+
+// The real-time chat thread — one continuous conversation per project (see
+// messages table's comment in schema.sql). Attachment messages reuse the
+// Trust Checker moderation pipeline (messages.controller.js's
+// sendAttachmentMessage creates the underlying submission + message row
+// together), so listMessages applies the same visibility rule as
+// listSubmissions above.
+projectsRouter.get("/:id/messages", listMessages);
+projectsRouter.post("/:id/messages", validate(sendMessageSchema), sendMessage);
+projectsRouter.post("/:id/messages/attachment", validate(sendAttachmentMessageSchema), sendAttachmentMessage);

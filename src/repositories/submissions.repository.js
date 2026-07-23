@@ -10,6 +10,22 @@ export async function create({ projectId, submittedBy, type, url, imageData, cap
   return rows[0];
 }
 
+// Same insert as create() above, but through a transaction's checked-out
+// client instead of the pool — for callers (messages.controller.js's
+// sendAttachmentMessage) that need the submission row and something else
+// (a linked chat message) to commit or roll back together. create() itself
+// is left untouched since its only existing caller (submissions.controller
+// .js's createSubmission) was never meant to be transactional.
+export async function createWithClient(client, { projectId, submittedBy, type, url, imageData, caption }) {
+  const { rows } = await client.query(
+    `INSERT INTO submissions (project_id, submitted_by, type, url, image_data, caption)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [projectId, submittedBy, type, url ?? null, imageData ?? null, caption ?? null]
+  );
+  return rows[0];
+}
+
 export async function findById(id) {
   const { rows } = await query(`SELECT * FROM submissions WHERE id = $1`, [id]);
   return rows[0] ?? null;

@@ -56,20 +56,27 @@ export async function listPublicProfiles({ role }) {
   return rows;
 }
 
-// The caller's own profile edit (PATCH /api/profiles/me) — avatarUrl/title/
-// phone overwrite when provided, profilePatch is shallow-merged into the
-// existing `profile` JSONB via Postgres's `||` so an edit to one field (e.g.
-// bio) never clobbers sibling fields (e.g. skills) the caller didn't send.
+// The caller's own profile edit (PATCH /api/profiles/me) — title/phone
+// overwrite when provided, profilePatch is shallow-merged into the existing
+// `profile` JSONB via Postgres's `||` so an edit to one field (e.g. bio)
+// never clobbers sibling fields (e.g. skills) the caller didn't send.
+//
+// avatarUrl is three-state, not two: undefined ("key omitted — leave
+// avatar_url alone"), null ("client explicitly wants to reset to the
+// default avatar"), or a URL string ("set it"). COALESCE can't tell the
+// first two apart since both arrive as SQL NULL, so avatarUrl's presence is
+// checked in JS and passed as a separate boolean flag instead.
 export async function updateSelf(id, { avatarUrl, title, phone, profilePatch }) {
+  const avatarProvided = avatarUrl !== undefined;
   const { rows } = await query(
     `UPDATE users
-     SET avatar_url = COALESCE($2, avatar_url),
-         title = COALESCE($3, title),
-         phone = COALESCE($4, phone),
-         profile = profile || $5::jsonb
+     SET avatar_url = CASE WHEN $2 THEN $3 ELSE avatar_url END,
+         title = COALESCE($4, title),
+         phone = COALESCE($5, phone),
+         profile = profile || $6::jsonb
      WHERE id = $1
      RETURNING *`,
-    [id, avatarUrl ?? null, title ?? null, phone ?? null, JSON.stringify(profilePatch ?? {})]
+    [id, avatarProvided, avatarUrl ?? null, title ?? null, phone ?? null, JSON.stringify(profilePatch ?? {})]
   );
   return rows[0] ?? null;
 }
