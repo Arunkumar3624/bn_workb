@@ -93,7 +93,10 @@ export async function list({ businessId, workerId, status, page, pageSize, viewe
 // list() above) — see job_candidates.controller.js's listOpenProjects.
 export async function listOpen() {
   const { rows } = await query(
-    `SELECT p.*, b.name AS business_name, b.rating AS business_rating
+    `SELECT p.*, b.name AS business_name, b.rating AS business_rating,
+            (SELECT count(*)::int FROM job_candidates c
+             WHERE c.project_id = p.id AND c.source = 'APPLICATION'
+            ) AS applicant_count
      FROM projects p
      JOIN public_user_profiles b ON b.id = p.business_id
      WHERE p.status = 'OPEN'
