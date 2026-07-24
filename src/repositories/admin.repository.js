@@ -36,6 +36,45 @@ export async function setUserVerified(client, userId, verified) {
   return rows[0] ?? null;
 }
 
+// ─── Message monitor ──────────────────────────────────────────────────────────
+// Platform-wide search over every real chat message — not just the ones the
+// contact-info filter auto-blocked (that's blocked_message_attempts, a
+// separate queue). This is the manual complement: support can search/browse
+// full conversations to catch things the filter's evasion-prone regex
+// misses (e.g. a phone number split up with commas or odd spacing).
+
+// search: optional case-insensitive substring match against the message
+// body. Capped at 200 rows (most-recent-first) — a monitoring tool, not an
+// export; support narrows with `search` rather than paging through history.
+export async function searchMessages({ search } = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (search && search.trim()) {
+    params.push(`%${search.trim()}%`);
+    conditions.push(`m.body ILIKE $${params.length}`);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const { rows } = await query(
+    `SELECT m.id, m.project_id, m.body, m.created_at,
+            sender.id AS sender_id, sender.name AS sender_name, sender.role AS sender_role,
+            p.title AS project_title,
+            w.name AS worker_name, b.name AS business_name
+     FROM messages m
+     JOIN users sender ON sender.id = m.sender_id
+     JOIN projects p ON p.id = m.project_id
+     JOIN users w ON w.id = p.worker_id
+     JOIN users b ON b.id = p.business_id
+     ${where}
+     ORDER BY m.created_at DESC
+     LIMIT 200`,
+    params
+  );
+  return rows;
+}
+
 // ─── KPI engine ───────────────────────────────────────────────────────────────
 // Statuses that mean "the business's money is currently held on the
 // platform, not yet paid out or cancelled" — i.e. the funds-secured pool.

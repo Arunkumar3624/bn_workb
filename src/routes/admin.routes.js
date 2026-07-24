@@ -11,6 +11,7 @@ import {
   listTransactions,
   listBlockedAttempts,
   resolveBlockedAttempt,
+  searchMessages,
 } from "../controllers/admin.controller.js";
 import { listPendingSubmissions, listReviewedSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
@@ -39,6 +40,9 @@ adminRouter.get("/transactions", listTransactions);
 // contact-info send that got hard-blocked (see messages.controller.js).
 adminRouter.get("/blocked-attempts", listBlockedAttempts);
 adminRouter.patch("/blocked-attempts/:id", resolveBlockedAttempt);
+
+// Message monitor — full-text search over every real chat message.
+adminRouter.get("/messages", searchMessages);
 
 // The Trust Checker's moderation queue.
 adminRouter.get("/submissions", listPendingSubmissions);

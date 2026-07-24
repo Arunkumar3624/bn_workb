@@ -198,6 +198,17 @@ export const listBlockedAttempts = asyncHandler(async (_req, res) => {
   res.json({ data });
 });
 
+// GET /api/admin/messages?search=... — the message monitor. Separate from
+// blocked-attempts: this searches every real message ever sent, so support
+// can proactively catch contact-info shares the filter's regex misses
+// (evasion tricks like commas/odd spacing between digits), not just the
+// ones that got auto-blocked.
+export const searchMessages = asyncHandler(async (req, res) => {
+  const { search } = req.query;
+  const data = await adminRepo.searchMessages({ search });
+  res.json({ data });
+});
+
 // PATCH /api/admin/blocked-attempts/:id — body: { action, editedBody?, note? }
 // action: "redact_and_send" (creates a real message with the admin's cleaned
 // text, on the original sender's behalf) | "ban" (real — sets
