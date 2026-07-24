@@ -16,7 +16,8 @@ export async function findById(id, client = { query }) {
 // needs to return that row (with worker_name null) rather than hiding it.
 export async function findByIdJoined(id) {
   const { rows } = await query(
-    `SELECT p.*, w.name AS worker_name, b.name AS business_name
+    `SELECT p.*, w.name AS worker_name,
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name
      FROM projects p
      LEFT JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
@@ -71,7 +72,8 @@ export async function list({ businessId, workerId, status, page, pageSize, viewe
   // JOIN — an OPEN post (worker_id NULL) must still show up in the
   // business's own project list, just with worker_name null.
   const { rows } = await query(
-    `SELECT p.*, w.name AS worker_name, b.name AS business_name,
+    `SELECT p.*, w.name AS worker_name,
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
             (SELECT count(*)::int FROM submissions s
              WHERE s.project_id = p.id
                AND s.status = 'APPROVED'
@@ -93,7 +95,8 @@ export async function list({ businessId, workerId, status, page, pageSize, viewe
 // list() above) — see job_candidates.controller.js's listOpenProjects.
 export async function listOpen() {
   const { rows } = await query(
-    `SELECT p.*, b.name AS business_name, b.rating AS business_rating,
+    `SELECT p.*, COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
+            b.rating AS business_rating,
             (SELECT count(*)::int FROM job_candidates c
              WHERE c.project_id = p.id AND c.source = 'APPLICATION'
             ) AS applicant_count

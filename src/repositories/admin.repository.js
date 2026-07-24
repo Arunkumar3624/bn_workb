@@ -89,7 +89,8 @@ export async function getWeeklyRevenue() {
 
 export async function listDisputedProjects() {
   const { rows } = await query(
-    `SELECT p.*, w.name AS worker_name, b.name AS business_name
+    `SELECT p.*, w.name AS worker_name,
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name
      FROM projects p
      JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
@@ -108,7 +109,8 @@ export async function listDisputedProjects() {
 // an "invoice" only exists once funds are at least secured.
 export async function listAllInvoices() {
   const { rows } = await query(
-    `SELECT p.*, w.name AS worker_name, b.name AS business_name
+    `SELECT p.*, w.name AS worker_name,
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name
      FROM projects p
      JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
