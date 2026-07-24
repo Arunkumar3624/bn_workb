@@ -99,7 +99,7 @@ export async function listMonitoredBusinesses() {
 export async function listWorkersForBusiness(businessId) {
   const { rows } = await query(
     `SELECT p.id AS project_id, p.title AS project_title, p.created_at,
-            w.id AS worker_id, w.name AS worker_name
+            w.id AS worker_id, w.name AS worker_name, w.is_active AS worker_is_active
      FROM projects p
      JOIN users w ON w.id = p.worker_id
      WHERE p.business_id = $1
