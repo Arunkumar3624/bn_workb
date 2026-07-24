@@ -31,6 +31,14 @@ export async function createLinkedToSubmission(client, { projectId, senderId, bo
 // once APPROVED) is enforced by the caller, same as listSubmissions in
 // submissions.controller.js — not here, to keep that one rule in one place
 // conceptually even though it's applied in two controllers.
+// Message Monitor's "Ban User" action needs to know who sent a given
+// message and on which project, without pulling the whole listForProject
+// join for one row.
+export async function findById(id) {
+  const { rows } = await query(`SELECT id, project_id, sender_id, body FROM messages WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
 export async function listForProject(projectId) {
   const { rows } = await query(
     `SELECT m.id, m.project_id, m.sender_id, m.body, m.created_at,

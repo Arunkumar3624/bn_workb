@@ -209,6 +209,40 @@ export const searchMessages = asyncHandler(async (req, res) => {
   res.json({ data });
 });
 
+// PATCH /api/admin/messages/:id/ban — Message Monitor's manual counterpart
+// to blocked-attempts' "ban" resolution: support found a real contact-info
+// share that evaded the auto-filter and is banning the sender directly off
+// that message. Same real effect (users.is_active = false, enforced by
+// guard.js/auth.controller.js) and same admin-can't-be-banned guard.
+export const banUserFromMessage = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const message = await messagesRepo.findById(id);
+  if (!message) throw ApiError.notFound("Message not found.");
+
+  const target = await usersRepo.findById(message.sender_id);
+  if (!target) throw ApiError.notFound("Sender not found.");
+  if (target.role === "admin") {
+    throw ApiError.badRequest("Admin accounts can't be banned from Message Monitor.");
+  }
+
+  const result = await transaction(async (client) => {
+    const updated = await usersRepo.setActive(client, target.id, false);
+
+    await adminRepo.insertPlatformLog(client, {
+      adminId: req.user.id,
+      action: "SECURITY_USER_BANNED",
+      targetUserId: target.id,
+      targetProjectId: message.project_id,
+      notes: `Banned ${target.name} from Message Monitor for sharing contact info: "${message.body}"`,
+    });
+
+    return updated;
+  });
+
+  res.json({ data: result });
+});
+
 // PATCH /api/admin/blocked-attempts/:id — body: { action, editedBody?, note? }
 // action: "redact_and_send" (creates a real message with the admin's cleaned
 // text, on the original sender's behalf) | "ban" (real — sets
