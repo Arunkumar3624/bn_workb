@@ -23,6 +23,28 @@ export async function createLinkedToSubmission(client, { projectId, senderId, bo
   return rows[0];
 }
 
+// Message Monitor's "Warn" action — a real, permanent message in the
+// project's chat, sender_id set to the issuing admin (the FK requires a
+// real user) but flagged so ChatThread.jsx renders it as a system banner,
+// not attributed to either participant.
+export async function createSystemNotice(client, { projectId, adminId, body }) {
+  const { rows } = await client.query(
+    `INSERT INTO messages (project_id, sender_id, body, is_system_notice)
+     VALUES ($1, $2, $3, true)
+     RETURNING *`,
+    [projectId, adminId, body]
+  );
+  return rows[0];
+}
+
+// Message Monitor's "Ban User"/"Warn" actions need to know who sent a given
+// message and on which project, without pulling the whole listForProject
+// join for one row.
+export async function findById(id) {
+  const { rows } = await query(`SELECT id, project_id, sender_id, body FROM messages WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
 // Joined to the sender's public profile (name) and, when the message wraps
 // a shared file, the submission itself — same shape submissions.repository
 // .js's listForProject returns, so the frontend can render an attachment
@@ -31,17 +53,9 @@ export async function createLinkedToSubmission(client, { projectId, senderId, bo
 // once APPROVED) is enforced by the caller, same as listSubmissions in
 // submissions.controller.js — not here, to keep that one rule in one place
 // conceptually even though it's applied in two controllers.
-// Message Monitor's "Ban User" action needs to know who sent a given
-// message and on which project, without pulling the whole listForProject
-// join for one row.
-export async function findById(id) {
-  const { rows } = await query(`SELECT id, project_id, sender_id, body FROM messages WHERE id = $1`, [id]);
-  return rows[0] ?? null;
-}
-
 export async function listForProject(projectId) {
   const { rows } = await query(
-    `SELECT m.id, m.project_id, m.sender_id, m.body, m.created_at,
+    `SELECT m.id, m.project_id, m.sender_id, m.body, m.created_at, m.is_system_notice,
             u.name AS sender_name,
             s.id AS submission_id, s.type AS submission_type, s.url AS submission_url,
             s.image_data AS submission_image_data, s.caption AS submission_caption,

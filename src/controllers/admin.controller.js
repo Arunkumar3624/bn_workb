@@ -237,6 +237,7 @@ export const moderateUser = asyncHandler(async (req, res) => {
 
   let logAction;
   let logNotes;
+  let noticeMessage = null;
 
   const result = await transaction(async (client) => {
     let updated = target;
@@ -253,8 +254,18 @@ export const moderateUser = asyncHandler(async (req, res) => {
       logAction = "SECURITY_USER_UNBANNED";
       logNotes = note || `Unbanned ${target.name} from Message Monitor.`;
     } else if (action === "warn") {
+      // A real, permanent message in the project's own chat — both sides
+      // see it, and it stays in the transcript as proof they were told,
+      // so a later ban can't be met with "I didn't know the rules."
+      if (!projectId) {
+        throw ApiError.badRequest("projectId is required to warn a user — the warning is delivered in that project's chat.");
+      }
+      const noticeText =
+        note ||
+        `Admin Warning: sharing phone numbers, email addresses, or other contact details in chat is not allowed on WorkBridge. This is a formal warning — continued violations may result in account suspension.`;
+      noticeMessage = await messagesRepo.createSystemNotice(client, { projectId, adminId: req.user.id, body: noticeText });
       logAction = "SECURITY_WARNING_SENT";
-      logNotes = note || `Warned ${target.name} from Message Monitor.`;
+      logNotes = `Warned ${target.name} from Message Monitor: "${noticeText}"`;
     } else if (action === "deduct_points") {
       if (target.role === "admin") {
         throw ApiError.badRequest("Admin accounts don't have a behavior score.");
@@ -280,6 +291,16 @@ export const moderateUser = asyncHandler(async (req, res) => {
 
     return updated;
   });
+
+  // The warning needs to show up live for whoever has that project's chat
+  // open right now, not just on their next reload — same event ChatThread
+  // already listens for (MESSAGE_CREATED).
+  if (noticeMessage) {
+    const project = await projectsRepo.findById(projectId);
+    if (project) {
+      emitProjectEvent(project, "MESSAGE_CREATED", { messageId: noticeMessage.id, senderId: req.user.id });
+    }
+  }
 
   res.json({ data: result });
 });

@@ -1,0 +1,11 @@
+-- Incremental migration — see migrations/010_moderation_actions.sql for the
+-- same pattern. Appended to schema.sql so a fresh `npm run migrate` still
+-- gets this in one pass.
+--
+-- Message Monitor's "Warn" action previously only wrote to platform_logs —
+-- the warned user never actually saw it. This makes a warning a real,
+-- permanent message inside the project's own chat thread (both sides see
+-- it, same as any other message), distinguished from a normal chat bubble
+-- by this flag so ChatThread.jsx can render it as a system banner instead
+-- of attributing it to "me" or "them".
+ALTER TABLE messages ADD COLUMN is_system_notice BOOLEAN NOT NULL DEFAULT FALSE;

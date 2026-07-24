@@ -380,12 +380,18 @@ CREATE TRIGGER trg_submissions_updated_at
 -- "submitter sees any status, counterparty only sees APPROVED" rule).
 
 CREATE TABLE messages (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id    UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  sender_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  body          TEXT,
-  submission_id UUID REFERENCES submissions(id) ON DELETE SET NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id        UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sender_id         UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  body              TEXT,
+  submission_id     UUID REFERENCES submissions(id) ON DELETE SET NULL,
+  -- Message Monitor's "Warn" action (admin.controller.js's moderateUser) —
+  -- a real, permanent chat message both sides see, rendered as a system
+  -- banner (not attributed to either participant) instead of a normal
+  -- bubble. sender_id is still the issuing admin's id (FK requires a real
+  -- user), this flag is what tells ChatThread.jsx to render it differently.
+  is_system_notice  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   CONSTRAINT chk_message_content CHECK (body IS NOT NULL OR submission_id IS NOT NULL)
 );
