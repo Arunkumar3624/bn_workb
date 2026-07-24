@@ -237,6 +237,10 @@ export const resolveBlockedAttempt = asyncHandler(async (req, res) => {
       logAction = "SECURITY_REDACTED_AND_SENT";
       logNotes = `Redacted and forwarded a blocked message on project ${attempt.project_id}`;
     } else if (action === "ban") {
+      const target = await usersRepo.findById(attempt.sender_id);
+      if (target?.role === "admin") {
+        throw ApiError.badRequest("Admin accounts can't be banned from Security Monitor.");
+      }
       await usersRepo.setActive(client, attempt.sender_id, false);
       status = "BANNED";
       logAction = "SECURITY_USER_BANNED";
