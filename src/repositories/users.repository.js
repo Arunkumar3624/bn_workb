@@ -24,12 +24,30 @@ export async function isActive(id) {
   return rows[0]?.is_active ?? false;
 }
 
-// Security Monitor's "Ban User" action (admin.controller.js's
-// resolveBlockedAttempt) — the only writer of this column.
+// Security Monitor's "Ban User"/"Unban User" actions (admin.controller.js's
+// resolveBlockedAttempt and moderateMessageSender) — the only writer of
+// this column.
 export async function setActive(client, id, active) {
   const { rows } = await client.query(
     `UPDATE users SET is_active = $2 WHERE id = $1 RETURNING *`,
     [id, active]
+  );
+  return rows[0] ?? null;
+}
+
+// Message Monitor's "Deduct Points" action. behavior_score is nullable
+// (nobody writes it yet elsewhere), so an unset score is treated as a clean
+// 1000 — "full trust until proven otherwise" — the same semantic the 0-1000
+// scale/marketing copy ("Behavior Score makes strong delivery visible")
+// implies. delta is negative for a deduction; clamped to the schema's
+// 0-1000 CHECK range either way.
+export async function adjustBehaviorScore(client, id, delta) {
+  const { rows } = await client.query(
+    `UPDATE users
+     SET behavior_score = LEAST(1000, GREATEST(0, COALESCE(behavior_score, 1000) + $2))
+     WHERE id = $1
+     RETURNING *`,
+    [id, delta]
   );
   return rows[0] ?? null;
 }

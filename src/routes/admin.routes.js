@@ -12,7 +12,7 @@ import {
   listBlockedAttempts,
   resolveBlockedAttempt,
   searchMessages,
-  banUserFromMessage,
+  moderateMessageSender,
 } from "../controllers/admin.controller.js";
 import { listPendingSubmissions, listReviewedSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
@@ -44,7 +44,7 @@ adminRouter.patch("/blocked-attempts/:id", resolveBlockedAttempt);
 
 // Message monitor — full-text search over every real chat message.
 adminRouter.get("/messages", searchMessages);
-adminRouter.patch("/messages/:id/ban", banUserFromMessage);
+adminRouter.patch("/messages/:id/moderate", moderateMessageSender);
 
 // The Trust Checker's moderation queue.
 adminRouter.get("/submissions", listPendingSubmissions);

@@ -209,32 +209,62 @@ export const searchMessages = asyncHandler(async (req, res) => {
   res.json({ data });
 });
 
-// PATCH /api/admin/messages/:id/ban — Message Monitor's manual counterpart
-// to blocked-attempts' "ban" resolution: support found a real contact-info
-// share that evaded the auto-filter and is banning the sender directly off
-// that message. Same real effect (users.is_active = false, enforced by
-// guard.js/auth.controller.js) and same admin-can't-be-banned guard.
-export const banUserFromMessage = asyncHandler(async (req, res) => {
+// PATCH /api/admin/messages/:id/moderate — Message Monitor's manual
+// counterpart to blocked-attempts' resolution actions: support found a real
+// contact-info share (or other bad behavior) that evaded the auto-filter
+// and is acting on the sender directly off that message.
+// body: { action: "ban" | "unban" | "warn" | "deduct_points", points? }
+export const moderateMessageSender = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const { action, points } = req.body ?? {};
 
   const message = await messagesRepo.findById(id);
   if (!message) throw ApiError.notFound("Message not found.");
 
   const target = await usersRepo.findById(message.sender_id);
   if (!target) throw ApiError.notFound("Sender not found.");
-  if (target.role === "admin") {
-    throw ApiError.badRequest("Admin accounts can't be banned from Message Monitor.");
-  }
+
+  let logAction;
+  let logNotes;
 
   const result = await transaction(async (client) => {
-    const updated = await usersRepo.setActive(client, target.id, false);
+    let updated = target;
+
+    if (action === "ban") {
+      if (target.role === "admin") {
+        throw ApiError.badRequest("Admin accounts can't be banned from Message Monitor.");
+      }
+      updated = await usersRepo.setActive(client, target.id, false);
+      logAction = "SECURITY_USER_BANNED";
+      logNotes = `Banned ${target.name} from Message Monitor for: "${message.body}"`;
+    } else if (action === "unban") {
+      updated = await usersRepo.setActive(client, target.id, true);
+      logAction = "SECURITY_USER_UNBANNED";
+      logNotes = `Unbanned ${target.name} from Message Monitor (message: "${message.body}")`;
+    } else if (action === "warn") {
+      logAction = "SECURITY_WARNING_SENT";
+      logNotes = `Warned ${target.name} from Message Monitor for: "${message.body}"`;
+    } else if (action === "deduct_points") {
+      if (target.role === "admin") {
+        throw ApiError.badRequest("Admin accounts don't have a behavior score.");
+      }
+      const amount = Number(points);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw ApiError.badRequest("points must be a positive number.");
+      }
+      updated = await usersRepo.adjustBehaviorScore(client, target.id, -amount);
+      logAction = "SECURITY_POINTS_DEDUCTED";
+      logNotes = `Deducted ${amount} behavior score points from ${target.name} for: "${message.body}"`;
+    } else {
+      throw ApiError.badRequest("action must be one of: ban, unban, warn, deduct_points.");
+    }
 
     await adminRepo.insertPlatformLog(client, {
       adminId: req.user.id,
-      action: "SECURITY_USER_BANNED",
+      action: logAction,
       targetUserId: target.id,
       targetProjectId: message.project_id,
-      notes: `Banned ${target.name} from Message Monitor for sharing contact info: "${message.body}"`,
+      notes: logNotes,
     });
 
     return updated;
