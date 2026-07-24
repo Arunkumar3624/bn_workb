@@ -13,6 +13,9 @@ import {
   resolveBlockedAttempt,
   searchMessages,
   moderateMessageSender,
+  listMonitoredBusinesses,
+  listWorkersForBusiness,
+  moderateUser,
 } from "../controllers/admin.controller.js";
 import { listPendingSubmissions, listReviewedSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
@@ -45,6 +48,9 @@ adminRouter.patch("/blocked-attempts/:id", resolveBlockedAttempt);
 // Message monitor — full-text search over every real chat message.
 adminRouter.get("/messages", searchMessages);
 adminRouter.patch("/messages/:id/moderate", moderateMessageSender);
+adminRouter.get("/messages/businesses", listMonitoredBusinesses);
+adminRouter.get("/messages/businesses/:businessId/workers", listWorkersForBusiness);
+adminRouter.patch("/users/:id/moderate", moderateUser);
 
 // The Trust Checker's moderation queue.
 adminRouter.get("/submissions", listPendingSubmissions);

@@ -209,6 +209,81 @@ export const searchMessages = asyncHandler(async (req, res) => {
   res.json({ data });
 });
 
+// GET /api/admin/messages/businesses — Message Monitor's "Cascading
+// Workspace" left column.
+export const listMonitoredBusinesses = asyncHandler(async (_req, res) => {
+  const data = await adminRepo.listMonitoredBusinesses();
+  res.json({ data });
+});
+
+// GET /api/admin/messages/businesses/:businessId/workers — middle column.
+export const listWorkersForBusiness = asyncHandler(async (req, res) => {
+  const data = await adminRepo.listWorkersForBusiness(req.params.businessId);
+  res.json({ data });
+});
+
+// PATCH /api/admin/users/:id/moderate — the Cascading Workspace's top-bar
+// actions (Warn/Deduct/Ban/Unban) on a selected worker/business, independent
+// of any single message. Same real effects and same admin-immunity guard as
+// moderateMessageSender below; kept separate because there's no message row
+// to anchor the log note to here — projectId/note are optional context.
+// body: { action: "ban" | "unban" | "warn" | "deduct_points", points?, projectId?, note? }
+export const moderateUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { action, points, projectId, note } = req.body ?? {};
+
+  const target = await usersRepo.findById(id);
+  if (!target) throw ApiError.notFound("User not found.");
+
+  let logAction;
+  let logNotes;
+
+  const result = await transaction(async (client) => {
+    let updated = target;
+
+    if (action === "ban") {
+      if (target.role === "admin") {
+        throw ApiError.badRequest("Admin accounts can't be banned from Message Monitor.");
+      }
+      updated = await usersRepo.setActive(client, target.id, false);
+      logAction = "SECURITY_USER_BANNED";
+      logNotes = note || `Banned ${target.name} from Message Monitor.`;
+    } else if (action === "unban") {
+      updated = await usersRepo.setActive(client, target.id, true);
+      logAction = "SECURITY_USER_UNBANNED";
+      logNotes = note || `Unbanned ${target.name} from Message Monitor.`;
+    } else if (action === "warn") {
+      logAction = "SECURITY_WARNING_SENT";
+      logNotes = note || `Warned ${target.name} from Message Monitor.`;
+    } else if (action === "deduct_points") {
+      if (target.role === "admin") {
+        throw ApiError.badRequest("Admin accounts don't have a behavior score.");
+      }
+      const amount = Number(points);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw ApiError.badRequest("points must be a positive number.");
+      }
+      updated = await usersRepo.adjustBehaviorScore(client, target.id, -amount);
+      logAction = "SECURITY_POINTS_DEDUCTED";
+      logNotes = note || `Deducted ${amount} behavior score points from ${target.name}.`;
+    } else {
+      throw ApiError.badRequest("action must be one of: ban, unban, warn, deduct_points.");
+    }
+
+    await adminRepo.insertPlatformLog(client, {
+      adminId: req.user.id,
+      action: logAction,
+      targetUserId: target.id,
+      targetProjectId: projectId || null,
+      notes: logNotes,
+    });
+
+    return updated;
+  });
+
+  res.json({ data: result });
+});
+
 // PATCH /api/admin/messages/:id/moderate — Message Monitor's manual
 // counterpart to blocked-attempts' resolution actions: support found a real
 // contact-info share (or other bad behavior) that evaded the auto-filter

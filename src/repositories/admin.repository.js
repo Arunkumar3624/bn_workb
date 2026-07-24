@@ -75,6 +75,40 @@ export async function searchMessages({ search } = {}) {
   return rows;
 }
 
+// Message Monitor's "Cascading Workspace" — left column. Only businesses
+// that have actually hired someone (i.e. have a project) show up here; a
+// business with zero projects has no chat to monitor.
+export async function listMonitoredBusinesses() {
+  const { rows } = await query(
+    `SELECT b.id,
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
+            count(DISTINCT p.worker_id)::int AS hires
+     FROM users b
+     JOIN projects p ON p.business_id = b.id
+     WHERE b.role = 'business'
+     GROUP BY b.id
+     ORDER BY business_name ASC`
+  );
+  return rows;
+}
+
+// Middle column — every project (one row per project, not deduped per
+// worker) a given business has ever posted, most recent first. A worker
+// hired twice by the same business shows up as two cards, each opening its
+// own project's thread — the roster is "hires," not "people."
+export async function listWorkersForBusiness(businessId) {
+  const { rows } = await query(
+    `SELECT p.id AS project_id, p.title AS project_title, p.created_at,
+            w.id AS worker_id, w.name AS worker_name
+     FROM projects p
+     JOIN users w ON w.id = p.worker_id
+     WHERE p.business_id = $1
+     ORDER BY p.created_at DESC`,
+    [businessId]
+  );
+  return rows;
+}
+
 // ─── KPI engine ───────────────────────────────────────────────────────────────
 // Statuses that mean "the business's money is currently held on the
 // platform, not yet paid out or cancelled" — i.e. the funds-secured pool.
