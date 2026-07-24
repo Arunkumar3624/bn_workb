@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import * as usersRepo from "../repositories/users.repository.js";
 
 // Shared by the HTTP `guard` below and the Socket.IO auth handshake
 // (realtime/socket.js) — one place decides what a valid token is.
@@ -34,6 +35,16 @@ export const guard = asyncHandler(async (req, _res, next) => {
   }
 
   req.user = verifyAccessToken(token);
+
+  // A ban (Security Monitor's "Ban User" action) needs to stop someone
+  // immediately, not just block their next login — an already-issued JWT
+  // stays cryptographically valid until it expires, so this is checked on
+  // every request, not only at sign-in.
+  const active = await usersRepo.isActive(req.user.id);
+  if (!active) {
+    throw ApiError.forbidden("This account has been suspended.");
+  }
+
   next();
 });
 

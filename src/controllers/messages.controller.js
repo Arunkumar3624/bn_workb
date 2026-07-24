@@ -5,6 +5,7 @@ import { containsContactInfo } from "../utils/contactFilter.js";
 import * as projectsRepo from "../repositories/projects.repository.js";
 import * as messagesRepo from "../repositories/messages.repository.js";
 import * as submissionsRepo from "../repositories/submissions.repository.js";
+import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 
 async function mustBeParticipant(req, projectId) {
@@ -31,6 +32,11 @@ export const sendMessage = asyncHandler(async (req, res) => {
 
   const { body } = req.body;
   if (containsContactInfo(body)) {
+    // The message is never stored — only this record of the attempt, for
+    // Security Monitor (admin.controller.js) to review. See
+    // schema.sql's blocked_message_attempts comment for why this is the one
+    // place blocked content is kept at all.
+    await blockedAttemptsRepo.create({ projectId: req.params.id, senderId: req.user.id, attemptedText: body });
     throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
   }
 
@@ -58,6 +64,7 @@ export const sendAttachmentMessage = asyncHandler(async (req, res) => {
 
   const { type, url, imageData, caption } = req.body;
   if (containsContactInfo(caption)) {
+    await blockedAttemptsRepo.create({ projectId: req.params.id, senderId: req.user.id, attemptedText: caption });
     throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
   }
 

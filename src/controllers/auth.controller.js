@@ -204,6 +204,9 @@ export const login = asyncHandler(async (req, res) => {
   if (!user.email_verified) {
     throw ApiError.forbidden("Please verify your email before signing in.");
   }
+  if (!user.is_active) {
+    throw ApiError.forbidden("This account has been suspended. Contact support if you believe this is a mistake.");
+  }
 
   res.json({ data: { token: issueToken(user), user: toSelf(user) } });
 });

@@ -73,6 +73,11 @@ CREATE TABLE users (
   -- rows; only POST /api/auth/register explicitly sets this FALSE for a new
   -- signup awaiting its OTP.
   email_verified    BOOLEAN NOT NULL DEFAULT TRUE,
+  -- Real account ban — set FALSE by Security Monitor's "Ban User" action
+  -- (admin.controller.js's resolveBlockedAttempt). Checked at login
+  -- (auth.controller.js) and on every authenticated request (guard.js), so
+  -- a ban actually stops someone, not just future logins.
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
   behavior_score    SMALLINT,                       -- 0–1000 trust metric; workers/businesses only
   rating            NUMERIC(3, 2),                  -- cached avg of reviews.rating for this user
   reviews_count     INTEGER NOT NULL DEFAULT 0,
@@ -293,7 +298,11 @@ CREATE TYPE platform_log_action AS ENUM (
   'DISPUTE_REFUNDED',
   'DISPUTE_RELEASED',
   'SUBMISSION_APPROVED',
-  'SUBMISSION_REJECTED'
+  'SUBMISSION_REJECTED',
+  'SECURITY_REDACTED_AND_SENT',
+  'SECURITY_USER_BANNED',
+  'SECURITY_WARNING_SENT',
+  'SECURITY_DISMISSED'
 );
 
 CREATE TABLE platform_logs (
@@ -418,6 +427,32 @@ CREATE INDEX idx_job_candidates_status     ON job_candidates (status);
 CREATE TRIGGER trg_job_candidates_updated_at
   BEFORE UPDATE ON job_candidates
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ─── 9. blocked_message_attempts ────────────────────────────────────────────
+-- Chat's contact-info filter (utils/contactFilter.js) hard-blocks a message
+-- before it's ever stored — nothing "slips through" to review after the
+-- fact. This is the one place that attempt is recorded anyway, purely for
+-- Security Monitor (admin.controller.js) to spot someone repeatedly trying
+-- to move a conversation off-platform. The blocked text itself is stored
+-- here (nowhere else) — visible only to admins, never to the counterparty.
+
+CREATE TYPE blocked_attempt_status AS ENUM ('PENDING', 'REDACTED_AND_SENT', 'BANNED', 'WARNED', 'DISMISSED');
+
+CREATE TABLE blocked_message_attempts (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id        UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  sender_id         UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  attempted_text    TEXT NOT NULL,
+  status            blocked_attempt_status NOT NULL DEFAULT 'PENDING',
+  resolved_by       UUID REFERENCES users(id) ON DELETE RESTRICT,
+  resolved_at       TIMESTAMPTZ,
+  resolution_note   TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_blocked_attempts_project_id ON blocked_message_attempts (project_id);
+CREATE INDEX idx_blocked_attempts_sender_id  ON blocked_message_attempts (sender_id);
+CREATE INDEX idx_blocked_attempts_status     ON blocked_message_attempts (status);
 
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --

@@ -9,6 +9,8 @@ import {
   resolveDispute,
   listAllUsers,
   listTransactions,
+  listBlockedAttempts,
+  resolveBlockedAttempt,
 } from "../controllers/admin.controller.js";
 import { listPendingSubmissions, listReviewedSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
@@ -32,6 +34,11 @@ adminRouter.get("/disputes", listDisputes);
 adminRouter.post("/disputes/:id/resolve", resolveDispute);
 
 adminRouter.get("/transactions", listTransactions);
+
+// Security Monitor — blocked_message_attempts is the only record of a
+// contact-info send that got hard-blocked (see messages.controller.js).
+adminRouter.get("/blocked-attempts", listBlockedAttempts);
+adminRouter.patch("/blocked-attempts/:id", resolveBlockedAttempt);
 
 // The Trust Checker's moderation queue.
 adminRouter.get("/submissions", listPendingSubmissions);

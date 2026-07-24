@@ -1,10 +1,14 @@
 import { transaction } from "../db/client.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { containsContactInfo } from "../utils/contactFilter.js";
 import * as adminRepo from "../repositories/admin.repository.js";
 import * as projectsRepo from "../repositories/projects.repository.js";
 import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
+import * as messagesRepo from "../repositories/messages.repository.js";
+import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
+import { emitProjectEvent } from "../realtime/events.js";
 
 const PLATFORM_FEE_PCT_FALLBACK = 8;
 
@@ -182,3 +186,99 @@ export const listTransactions = asyncHandler(async (_req, res) => {
 function formatAmount(n) {
   return `₹${Number(n).toLocaleString("en-IN")}`;
 }
+
+// ─── Security Monitor ─────────────────────────────────────────────────────────
+// Reviews blocked_message_attempts (messages.controller.js writes one every
+// time containsContactInfo rejects a send) — the actual message content is
+// never stored anywhere else, so this queue is the only record of it.
+
+// GET /api/admin/blocked-attempts
+export const listBlockedAttempts = asyncHandler(async (_req, res) => {
+  const data = await blockedAttemptsRepo.listPending();
+  res.json({ data });
+});
+
+// PATCH /api/admin/blocked-attempts/:id — body: { action, editedBody?, note? }
+// action: "redact_and_send" (creates a real message with the admin's cleaned
+// text, on the original sender's behalf) | "ban" (real — sets
+// users.is_active false, enforced by guard.js/auth.controller.js) | "warn" |
+// "dismiss" (both log-only — no notification system exists to actually
+// deliver a warning yet).
+export const resolveBlockedAttempt = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { action, editedBody, note } = req.body;
+
+  const attempt = await blockedAttemptsRepo.findById(id);
+  if (!attempt) throw ApiError.notFound("Blocked attempt not found.");
+  if (attempt.status !== "PENDING") {
+    throw ApiError.badRequest(`This was already resolved (${attempt.status}).`);
+  }
+
+  let sentMessage = null;
+
+  const result = await transaction(async (client) => {
+    let status;
+    let logAction;
+    let logNotes;
+
+    if (action === "redact_and_send") {
+      if (!editedBody || !editedBody.trim()) {
+        throw ApiError.badRequest("editedBody is required to redact and send.");
+      }
+      if (containsContactInfo(editedBody)) {
+        throw ApiError.badRequest("The edited message still contains contact info — remove it before sending.");
+      }
+      sentMessage = await messagesRepo.create({
+        projectId: attempt.project_id,
+        senderId: attempt.sender_id,
+        body: editedBody.trim(),
+      });
+      status = "REDACTED_AND_SENT";
+      logAction = "SECURITY_REDACTED_AND_SENT";
+      logNotes = `Redacted and forwarded a blocked message on project ${attempt.project_id}`;
+    } else if (action === "ban") {
+      await usersRepo.setActive(client, attempt.sender_id, false);
+      status = "BANNED";
+      logAction = "SECURITY_USER_BANNED";
+      logNotes = `Banned ${attempt.sender_name} for a blocked contact-info attempt`;
+    } else if (action === "warn") {
+      status = "WARNED";
+      logAction = "SECURITY_WARNING_SENT";
+      logNotes = `Warned ${attempt.sender_name} for a blocked contact-info attempt`;
+    } else if (action === "dismiss") {
+      status = "DISMISSED";
+      logAction = "SECURITY_DISMISSED";
+      logNotes = "Dismissed a blocked contact-info attempt as a false alarm";
+    } else {
+      throw ApiError.badRequest("action must be one of: redact_and_send, ban, warn, dismiss.");
+    }
+
+    const resolved = await blockedAttemptsRepo.resolve(client, id, {
+      status,
+      resolvedBy: req.user.id,
+      resolutionNote: note,
+    });
+
+    await adminRepo.insertPlatformLog(client, {
+      adminId: req.user.id,
+      action: logAction,
+      targetUserId: attempt.sender_id,
+      targetProjectId: attempt.project_id,
+      notes: logNotes,
+    });
+
+    return resolved;
+  });
+
+  // Only redact_and_send creates something the sender's own chat needs to
+  // see live — ban/warn/dismiss have no realtime-visible side effect for
+  // either participant.
+  if (sentMessage) {
+    const project = await projectsRepo.findById(attempt.project_id);
+    if (project) {
+      emitProjectEvent(project, "MESSAGE_CREATED", { messageId: sentMessage.id, senderId: attempt.sender_id });
+    }
+  }
+
+  res.json({ data: result });
+});

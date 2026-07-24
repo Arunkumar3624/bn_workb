@@ -17,6 +17,23 @@ export async function findByPhone(phone) {
   return rows[0] ?? null;
 }
 
+// Lightweight — only the one column guard.js and the login flow actually
+// need, so a banned-user check doesn't pull the whole row on every request.
+export async function isActive(id) {
+  const { rows } = await query(`SELECT is_active FROM users WHERE id = $1`, [id]);
+  return rows[0]?.is_active ?? false;
+}
+
+// Security Monitor's "Ban User" action (admin.controller.js's
+// resolveBlockedAttempt) — the only writer of this column.
+export async function setActive(client, id, active) {
+  const { rows } = await client.query(
+    `UPDATE users SET is_active = $2 WHERE id = $1 RETURNING *`,
+    [id, active]
+  );
+  return rows[0] ?? null;
+}
+
 // Only ever called with role 'worker' | 'business' — see
 // auth.validators.js's registerSchema, which excludes 'admin' at the
 // boundary so this repo function never has to re-check it.
