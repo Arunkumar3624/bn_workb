@@ -37,6 +37,11 @@ CREATE TYPE transaction_direction AS ENUM ('credit', 'debit');
 -- even though this is an internal schema term, not user-facing text.
 CREATE TYPE funds_status AS ENUM ('HELD', 'RELEASED', 'REFUNDED');
 
+-- MASTER_ECONOMY_PLAN.md's Two-Door Reveal — 'hidden' until a worker
+-- reaches Door A (first completed job) or Door B (5 consecutive
+-- rejections); the app layer flips this, not the schema.
+CREATE TYPE standing_door_state AS ENUM ('hidden', 'win', 'span');
+
 -- ─── updated_at trigger ─────────────────────────────────────────────────────
 -- Applied to all 4 tables below so "updated_at" is a real audit fact, not a
 -- column the application has to remember to touch by hand.
@@ -83,6 +88,18 @@ CREATE TABLE users (
   reviews_count     INTEGER NOT NULL DEFAULT 0,
   wallet_balance    NUMERIC(12, 2) NOT NULL DEFAULT 0, -- cached; transactions is the source of truth (see notes)
   profile           JSONB NOT NULL DEFAULT '{}',     -- role-specific extras: skills[], hourly_rate, company_size, etc.
+  -- MASTER_ECONOMY_PLAN.md Phase 1 — the Worker Economy data foundation.
+  -- Conceptually worker-only, but left unrestricted by role at the schema
+  -- level (same precedent as wallet_balance above) — the business-side
+  -- Ledger/XP track is a later phase, not modeled here yet. No app logic
+  -- reads/writes these yet, and they're deliberately absent from
+  -- public_user_profiles below — the Two-Door Reveal's entire point is
+  -- that xp/current_level stay hidden until standing_door leaves 'hidden'.
+  xp                INTEGER NOT NULL DEFAULT 0,
+  current_level     INTEGER NOT NULL DEFAULT 1,
+  bridge_tokens     INTEGER NOT NULL DEFAULT 0,
+  current_streak    INTEGER NOT NULL DEFAULT 0,
+  standing_door     standing_door_state NOT NULL DEFAULT 'hidden',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -95,7 +112,12 @@ CREATE TABLE users (
     CHECK (behavior_score IS NULL OR behavior_score BETWEEN 0 AND 1000),
 
   CONSTRAINT chk_rating_range
-    CHECK (rating IS NULL OR rating BETWEEN 0 AND 5)
+    CHECK (rating IS NULL OR rating BETWEEN 0 AND 5),
+
+  CONSTRAINT chk_xp_non_negative CHECK (xp >= 0),
+  CONSTRAINT chk_current_level_min CHECK (current_level >= 1),
+  CONSTRAINT chk_bridge_tokens_non_negative CHECK (bridge_tokens >= 0),
+  CONSTRAINT chk_current_streak_non_negative CHECK (current_streak >= 0)
 );
 
 CREATE INDEX idx_users_role ON users (role);
@@ -461,6 +483,26 @@ CREATE TABLE blocked_message_attempts (
 CREATE INDEX idx_blocked_attempts_project_id ON blocked_message_attempts (project_id);
 CREATE INDEX idx_blocked_attempts_sender_id  ON blocked_message_attempts (sender_id);
 CREATE INDEX idx_blocked_attempts_status     ON blocked_message_attempts (status);
+
+-- ─── The Abstracted Ladder's backend-only config ─────────────────────────────
+-- MASTER_ECONOMY_PLAN.md Part 5a — real fee percentages live only here,
+-- looked up by level at project completion. No API route ever serves
+-- platform_fee_pct to a client; only tier_name may surface in UI copy.
+CREATE TABLE gamification_config (
+  level_threshold   INTEGER PRIMARY KEY,
+  tier_name         VARCHAR(50) NOT NULL,
+  platform_fee_pct  NUMERIC(4, 2) NOT NULL,
+
+  CONSTRAINT chk_level_threshold_min CHECK (level_threshold >= 1),
+  CONSTRAINT chk_platform_fee_pct_range CHECK (platform_fee_pct BETWEEN 0 AND 100)
+);
+
+INSERT INTO gamification_config (level_threshold, tier_name, platform_fee_pct) VALUES
+  (1,   'Standard', 10.00),
+  (50,  'Silver',   9.00),
+  (100, 'Gold',     8.50),
+  (150, 'Platinum', 8.25),
+  (200, 'Diamond',  8.00);
 
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --
