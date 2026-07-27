@@ -6,6 +6,7 @@ import * as projectsRepo from "../repositories/projects.repository.js";
 import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
+import { calculateLevel } from "../utils/gamification.js";
 
 const PLATFORM_FEE_PCT_FALLBACK = 8; // schema.sql's projects.platform_fee_pct default
 
@@ -223,7 +224,19 @@ export const completeProject = asyncHandler(async (req, res) => {
     // c. Update the worker's wallet balance
     await usersRepo.incrementWalletBalance(client, project.worker_id, earnings);
 
-    return { project: updatedProject, payout: payoutTxn, earnings, fee };
+    // d. MASTER_ECONOMY_PLAN.md's Core Loop — award completion XP inside
+    // this same transaction, so a failed payout can never leave XP awarded
+    // for a project that didn't actually complete. +50 is a flat first-cut
+    // value (Part 4's full design distinguishes on-time/+150 vs early/+200;
+    // that distinction isn't wired yet — this is deliberately the simpler
+    // version to get the loop working end-to-end first).
+    const workerBefore = await usersRepo.findForUpdate(client, project.worker_id);
+    const newXp = workerBefore.xp + 50;
+    const { currentLevel: newLevel } = calculateLevel(newXp);
+    const leveledUp = newLevel > workerBefore.current_level;
+    await usersRepo.awardXp(client, project.worker_id, { xpDelta: 50, currentLevel: newLevel });
+
+    return { project: updatedProject, payout: payoutTxn, earnings, fee, leveledUp, newLevel, newXp };
   });
   // ^ transaction() commits here if we reached this line, or has already
   // rolled back and re-thrown if anything above threw.

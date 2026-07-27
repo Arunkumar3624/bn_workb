@@ -141,3 +141,23 @@ export async function incrementWalletBalance(client, userId, delta) {
   );
   return rows[0] ?? null;
 }
+
+// MASTER_ECONOMY_PLAN.md's Core Loop — awards xp (and optionally
+// bridge_tokens) to a user inside the caller's transaction, then persists
+// the recalculated current_level in the same statement so xp and
+// current_level can never drift out of sync with each other. currentLevel
+// is passed in (from utils/gamification.js's calculateLevel) rather than
+// computed here — this repo function stays a pure DB write, same as
+// incrementWalletBalance above; the level math lives in one place only.
+export async function awardXp(client, userId, { xpDelta, tokenDelta = 0, currentLevel }) {
+  const { rows } = await client.query(
+    `UPDATE users
+     SET xp = xp + $2,
+         bridge_tokens = bridge_tokens + $3,
+         current_level = $4
+     WHERE id = $1
+     RETURNING *`,
+    [userId, xpDelta, tokenDelta, currentLevel]
+  );
+  return rows[0] ?? null;
+}
