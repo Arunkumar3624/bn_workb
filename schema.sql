@@ -193,6 +193,12 @@ CREATE TABLE projects (
   platform_fee_pct  NUMERIC(5, 2) NOT NULL DEFAULT 8.00,
   status            project_status NOT NULL DEFAULT 'INVITED',
   deadline          DATE,
+  -- Distinct from `deadline` above (the DELIVERY date) — application_deadline
+  -- is when an OPEN post stops accepting new applicants; estimated_duration
+  -- is a free-text expectation of how long the work itself should take
+  -- once assigned (e.g. "3 Days", "2 Weeks"), shown on job cards.
+  application_deadline TIMESTAMPTZ,
+  estimated_duration   TEXT,
   -- Append-only FSM history, e.g. [{"status": "FUNDS_SECURED", "at": "..."}].
   -- A normalized project_timeline_events table (project_id, status,
   -- occurred_at) would be the more correct audit-trail design — recommended

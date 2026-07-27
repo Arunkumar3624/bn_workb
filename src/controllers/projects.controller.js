@@ -53,6 +53,18 @@ export const listOpenProjects = asyncHandler(async (_req, res) => {
   res.json({ data: projects });
 });
 
+// applicationWindow is a symbolic choice from the Post Job form ("24h",
+// "48h", "7d") — resolved to a real future timestamp here, once, so
+// there's a single source of truth for what each option means instead of
+// the frontend and backend each computing "now + X" independently.
+const APPLICATION_WINDOW_HOURS = { "24h": 24, "48h": 48, "7d": 24 * 7 };
+
+function resolveApplicationDeadline(applicationWindow) {
+  const hours = APPLICATION_WINDOW_HOURS[applicationWindow];
+  if (!hours) return null;
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
 // POST /api/projects — a business creates a new project. Only a
 // business may call this (enforced by requireRole("business") in the
 // router) — the caller becomes businessId, never a client-supplied value.
@@ -66,6 +78,8 @@ export const createProject = asyncHandler(async (req, res) => {
     description: req.body.description,
     budget: req.body.budget,
     deadline: req.body.deadline,
+    applicationDeadline: resolveApplicationDeadline(req.body.applicationWindow),
+    estimatedDuration: req.body.estimatedDuration,
   });
 
   // The worker has never seen this project before now, so they can't have
@@ -241,7 +255,16 @@ export const completeProject = asyncHandler(async (req, res) => {
   // ^ transaction() commits here if we reached this line, or has already
   // rolled back and re-thrown if anything above threw.
 
-  emitProjectEvent(result.project, "COMPLETED", { earnings: result.earnings, fee: result.fee });
+  // leveledUp/newLevel ride along on the same realtime event — the
+  // business is who calls this endpoint, so the HTTP response alone would
+  // only ever reach their browser. This is the only path that gets the
+  // result to the worker's own already-connected socket in real time.
+  emitProjectEvent(result.project, "COMPLETED", {
+    earnings: result.earnings,
+    fee: result.fee,
+    leveledUp: result.leveledUp,
+    newLevel: result.newLevel,
+  });
 
   res.json({ data: result });
 });

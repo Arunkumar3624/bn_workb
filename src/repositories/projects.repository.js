@@ -113,13 +113,33 @@ export async function listOpen() {
 // workerId omitted (status defaults to OPEN below); the existing direct-
 // invite flow still passes a real workerId (status defaults to INVITED,
 // same as before this feature existed).
-export async function create({ businessId, workerId, title, description, budget, deadline, status }) {
+export async function create({
+  businessId,
+  workerId,
+  title,
+  description,
+  budget,
+  deadline,
+  status,
+  applicationDeadline,
+  estimatedDuration,
+}) {
   const resolvedStatus = status ?? (workerId ? "INVITED" : "OPEN");
   const { rows } = await query(
-    `INSERT INTO projects (business_id, worker_id, title, description, budget, deadline, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::project_status)
+    `INSERT INTO projects (business_id, worker_id, title, description, budget, deadline, status, application_deadline, estimated_duration)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::project_status, $8, $9)
      RETURNING *`,
-    [businessId, workerId ?? null, title, description ?? null, budget, deadline ?? null, resolvedStatus]
+    [
+      businessId,
+      workerId ?? null,
+      title,
+      description ?? null,
+      budget,
+      deadline ?? null,
+      resolvedStatus,
+      applicationDeadline ?? null,
+      estimatedDuration ?? null,
+    ]
   );
   return rows[0];
 }

@@ -35,12 +35,20 @@ export async function findByIdForUpdate(client, id) {
 // The business's applicant/invite review list for one of their own OPEN
 // projects — joined to the worker's public profile so the UI can show a
 // name/rating/skills without a second round trip per row.
+// standing_door/current_level are joined from `users` directly, not
+// public_user_profiles — that view deliberately excludes them (see
+// migrations/012_gamification_foundation.sql) so the Two-Door Reveal can't
+// leak on any public/anonymous surface. This query is safe to include them
+// on: job_candidates.controller.js's listCandidatesForProject already
+// gates it to only the business that owns the project (or an admin).
+// xp/bridge_tokens are still never selected here — only the derived,
+// already-gated reveal state and level, never the raw currency.
 export async function listForProject(projectId) {
   const { rows } = await query(
     `SELECT c.*, w.name AS worker_name, w.avatar_url, w.title AS worker_title,
-            w.rating, w.reviews_count, w.profile
+            w.rating, w.reviews_count, w.profile, w.standing_door, w.current_level
      FROM job_candidates c
-     JOIN public_user_profiles w ON w.id = c.worker_id
+     JOIN users w ON w.id = c.worker_id
      WHERE c.project_id = $1
      ORDER BY c.created_at DESC`,
     [projectId]
