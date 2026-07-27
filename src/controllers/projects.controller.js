@@ -5,8 +5,14 @@ import { canTransition } from "../domain/projectStatus.js";
 import * as projectsRepo from "../repositories/projects.repository.js";
 import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
+import * as ledgerEventsRepo from "../repositories/ledger_events.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 import { calculateLevel } from "../utils/gamification.js";
+
+// The first real token-earning trigger — MASTER_ECONOMY_PLAN.md's Ledger
+// Tokens (Bridge Tokens) had a column since migration 012 but nothing ever
+// credited any; every real account's balance was permanently 0 until this.
+const COMPLETION_TOKEN_REWARD = 25;
 
 const PLATFORM_FEE_PCT_FALLBACK = 8; // schema.sql's projects.platform_fee_pct default
 
@@ -254,7 +260,18 @@ export const completeProject = asyncHandler(async (req, res) => {
     // early via 5 rejections, now upgrading to a real win) — only 'win'
     // itself is a no-op. This was the one piece of the Core Loop that
     // hadn't actually been wired despite being described as working.
-    await usersRepo.awardXp(client, project.worker_id, { xpDelta: 50, currentLevel: newLevel, standingDoor: "win" });
+    await usersRepo.awardXp(client, project.worker_id, {
+      xpDelta: 50,
+      tokenDelta: COMPLETION_TOKEN_REWARD,
+      currentLevel: newLevel,
+      standingDoor: "win",
+    });
+    await ledgerEventsRepo.create(client, {
+      userId: project.worker_id,
+      eventType: "PROJECT_COMPLETED",
+      xpDelta: 50,
+      tokenDelta: COMPLETION_TOKEN_REWARD,
+    });
 
     return { project: updatedProject, payout: payoutTxn, earnings, fee, leveledUp, newLevel, newXp };
   });

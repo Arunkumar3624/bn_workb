@@ -510,6 +510,20 @@ INSERT INTO gamification_config (level_threshold, tier_name, platform_fee_pct) V
   (150, 'Platinum', 8.25),
   (200, 'Diamond',  8.00);
 
+-- MASTER_ECONOMY_PLAN.md Part 1/Part 11 — the real per-event Ledger, the
+-- actual source of truth a Ledger UI reads from (not just the running
+-- totals on users.xp/bridge_tokens).
+CREATE TABLE ledger_events (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  event_type  TEXT NOT NULL,
+  xp_delta    INTEGER NOT NULL DEFAULT 0,
+  token_delta INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_ledger_events_user_id_created_at ON ledger_events (user_id, created_at DESC);
+
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --
 -- 1. wallet_balance is a cache, transactions is the ledger of record.
