@@ -14,6 +14,13 @@ import { calculateLevel } from "../utils/gamification.js";
 // credited any; every real account's balance was permanently 0 until this.
 const COMPLETION_TOKEN_REWARD = 25;
 
+// The business-side counterpart — first real trigger for a business's own
+// Corporate Credits/XP track, previously also permanently 0 for every
+// account (see migration 012's note that the business-side Ledger was "a
+// later phase, not modeled here yet").
+const BUSINESS_COMPLETION_XP_REWARD = 30;
+const BUSINESS_COMPLETION_TOKEN_REWARD = 15;
+
 const PLATFORM_FEE_PCT_FALLBACK = 8; // schema.sql's projects.platform_fee_pct default
 
 // GET /api/projects — list projects the caller participates in. "?role=" is
@@ -59,16 +66,19 @@ export const listOpenProjects = asyncHandler(async (_req, res) => {
   res.json({ data: projects });
 });
 
-// applicationWindow is a symbolic choice from the Post Job form ("24h",
-// "48h", "7d") — resolved to a real future timestamp here, once, so
-// there's a single source of truth for what each option means instead of
-// the frontend and backend each computing "now + X" independently.
-const APPLICATION_WINDOW_HOURS = { "24h": 24, "48h": 48, "7d": 24 * 7 };
+// applicationWindow is now a plain number of days the business chose on
+// the Post Job form — resolved to a real future timestamp here, once, so
+// there's a single source of truth for the "now + N days" math instead of
+// the frontend and backend each computing it independently.
+const MIN_APPLICATION_WINDOW_DAYS = 1;
+const MAX_APPLICATION_WINDOW_DAYS = 90;
 
-function resolveApplicationDeadline(applicationWindow) {
-  const hours = APPLICATION_WINDOW_HOURS[applicationWindow];
-  if (!hours) return null;
-  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+function resolveApplicationDeadline(applicationWindowDays) {
+  const days = Number(applicationWindowDays);
+  if (!Number.isFinite(days) || days < MIN_APPLICATION_WINDOW_DAYS || days > MAX_APPLICATION_WINDOW_DAYS) {
+    return null;
+  }
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 // POST /api/projects — a business creates a new project. Only a
@@ -271,6 +281,27 @@ export const completeProject = asyncHandler(async (req, res) => {
       eventType: "PROJECT_COMPLETED",
       xpDelta: 50,
       tokenDelta: COMPLETION_TOKEN_REWARD,
+    });
+
+    // MASTER_ECONOMY_PLAN.md Part 7 — the business-side Ledger's first
+    // real earning trigger ("project successfully closed without
+    // dispute"). completeProject only ever runs on a project that reached
+    // COMPLETED normally (a disputed project follows admin.controller.js's
+    // resolveDispute instead), so every call here already satisfies
+    // "no dispute" — no extra check needed.
+    const businessBefore = await usersRepo.findForUpdate(client, project.business_id);
+    const newBusinessXp = businessBefore.xp + BUSINESS_COMPLETION_XP_REWARD;
+    const { currentLevel: newBusinessLevel } = calculateLevel(newBusinessXp);
+    await usersRepo.awardXp(client, project.business_id, {
+      xpDelta: BUSINESS_COMPLETION_XP_REWARD,
+      tokenDelta: BUSINESS_COMPLETION_TOKEN_REWARD,
+      currentLevel: newBusinessLevel,
+    });
+    await ledgerEventsRepo.create(client, {
+      userId: project.business_id,
+      eventType: "PROJECT_COMPLETED_NO_DISPUTE",
+      xpDelta: BUSINESS_COMPLETION_XP_REWARD,
+      tokenDelta: BUSINESS_COMPLETION_TOKEN_REWARD,
     });
 
     return { project: updatedProject, payout: payoutTxn, earnings, fee, leveledUp, newLevel, newXp };
