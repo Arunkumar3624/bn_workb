@@ -8,6 +8,8 @@ import {
   resendOtpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  changePasswordSchema,
+  deactivateSelfSchema,
 } from "../validators/auth.validators.js";
 import {
   register,
@@ -16,6 +18,8 @@ import {
   resendOtp,
   forgotPassword,
   resetPassword,
+  changePassword,
+  deactivateSelf,
   me,
 } from "../controllers/auth.controller.js";
 
@@ -34,3 +38,9 @@ authRouter.post("/forgot-password", validate(forgotPasswordSchema), forgotPasswo
 authRouter.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 
 authRouter.get("/me", guard, me);
+
+// Settings page — Security & Auth (change password) and Danger Zone
+// (self-deactivation). Both require a valid session, unlike the
+// forgot/reset-password pair above.
+authRouter.post("/change-password", guard, validate(changePasswordSchema), changePassword);
+authRouter.patch("/deactivate-self", guard, validate(deactivateSelfSchema), deactivateSelf);

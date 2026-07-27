@@ -101,17 +101,18 @@ export async function listPublicProfiles({ role }) {
 // default avatar"), or a URL string ("set it"). COALESCE can't tell the
 // first two apart since both arrive as SQL NULL, so avatarUrl's presence is
 // checked in JS and passed as a separate boolean flag instead.
-export async function updateSelf(id, { avatarUrl, title, phone, profilePatch }) {
+export async function updateSelf(id, { avatarUrl, title, phone, name, profilePatch }) {
   const avatarProvided = avatarUrl !== undefined;
   const { rows } = await query(
     `UPDATE users
      SET avatar_url = CASE WHEN $2 THEN $3 ELSE avatar_url END,
          title = COALESCE($4, title),
          phone = COALESCE($5, phone),
-         profile = profile || $6::jsonb
+         name = COALESCE($6, name),
+         profile = profile || $7::jsonb
      WHERE id = $1
      RETURNING *`,
-    [id, avatarProvided, avatarUrl ?? null, title ?? null, phone ?? null, JSON.stringify(profilePatch ?? {})]
+    [id, avatarProvided, avatarUrl ?? null, title ?? null, phone ?? null, name ?? null, JSON.stringify(profilePatch ?? {})]
   );
   return rows[0] ?? null;
 }

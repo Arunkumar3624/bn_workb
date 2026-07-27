@@ -35,3 +35,17 @@ export const resetPasswordSchema = z.object({
   otp: z.string().trim().regex(/^[0-9]{6}$/, "Enter the 6-digit code."),
   newPassword: z.string().min(8, "Password must be at least 8 characters"),
 });
+
+// Settings page's Security & Auth tab — a logged-in password change,
+// distinct from the forgot-password/reset-password OTP flow above.
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your current password"),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+// Settings page's Danger Zone — self-service deactivation (not permanent
+// deletion, see usersRepo.setActive's callers). Requires typing a literal
+// confirmation phrase so it can't be triggered by an accidental click.
+export const deactivateSelfSchema = z.object({
+  confirmation: z.literal("DEACTIVATE", { message: 'Type "DEACTIVATE" to confirm.' }),
+});

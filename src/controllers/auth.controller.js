@@ -3,6 +3,7 @@ import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { transaction } from "../db/client.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as authRepo from "../repositories/auth.repository.js";
 import { sendOtpEmail, sendPasswordResetEmail, isEmailConfigured } from "../services/email.service.js";
@@ -293,6 +294,37 @@ export const me = asyncHandler(async (req, res) => {
   const user = await usersRepo.findById(req.user.id);
   if (!user) throw ApiError.notFound("User not found.");
   res.json({ data: toSelf(user) });
+});
+
+// POST /api/auth/change-password — behind `guard`. Settings page's Security
+// tab. Distinct from forgot-password/reset-password (those are for a
+// logged-out user with no way to prove identity except an emailed code;
+// this one already has a valid session, so it proves identity with the
+// current password instead).
+export const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  const user = await usersRepo.findById(req.user.id);
+  if (!user) throw ApiError.notFound("User not found.");
+
+  const matches = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!matches) throw ApiError.unauthorized("Current password is incorrect.");
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  await usersRepo.updatePassword(user.id, passwordHash);
+
+  res.json({ data: { message: "Password updated." } });
+});
+
+// PATCH /api/auth/deactivate-self — behind `guard`. Settings page's Danger
+// Zone. Reuses the exact same users.is_active mechanism Security Monitor's
+// admin "Ban User" action uses (usersRepo.setActive) — the only difference
+// is who's flipping the switch. Reversible by an admin (Unban), unlike a
+// real account deletion, which the schema's ON DELETE RESTRICT foreign keys
+// don't actually support.
+export const deactivateSelf = asyncHandler(async (req, res) => {
+  await transaction((client) => usersRepo.setActive(client, req.user.id, false));
+  res.json({ data: { message: "Account deactivated." } });
 });
 
 function mustGetJwtSecret() {
