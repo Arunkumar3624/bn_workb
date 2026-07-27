@@ -248,7 +248,13 @@ export const completeProject = asyncHandler(async (req, res) => {
     const newXp = workerBefore.xp + 50;
     const { currentLevel: newLevel } = calculateLevel(newXp);
     const leveledUp = newLevel > workerBefore.current_level;
-    await usersRepo.awardXp(client, project.worker_id, { xpDelta: 50, currentLevel: newLevel });
+    // MASTER_ECONOMY_PLAN.md Part 3 — Door A of the Two-Door Reveal. A
+    // completed project always satisfies it, whether the worker was
+    // 'hidden' (first-ever completion) or 'span' (previously revealed
+    // early via 5 rejections, now upgrading to a real win) — only 'win'
+    // itself is a no-op. This was the one piece of the Core Loop that
+    // hadn't actually been wired despite being described as working.
+    await usersRepo.awardXp(client, project.worker_id, { xpDelta: 50, currentLevel: newLevel, standingDoor: "win" });
 
     return { project: updatedProject, payout: payoutTxn, earnings, fee, leveledUp, newLevel, newXp };
   });

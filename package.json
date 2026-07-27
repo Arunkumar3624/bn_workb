@@ -11,7 +11,8 @@
     "create-admin": "node scripts/create-admin.js",
     "seed:retailx": "node scripts/seed-retailx-demo.js",
     "migrate:email-verified": "node scripts/migrate-email-verified.js",
-    "migrate:pending-signups": "node scripts/migrate-pending-signups.js"
+    "migrate:pending-signups": "node scripts/migrate-pending-signups.js",
+    "test": "node --test"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

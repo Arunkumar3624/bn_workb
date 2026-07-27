@@ -149,15 +149,19 @@ export async function incrementWalletBalance(client, userId, delta) {
 // is passed in (from utils/gamification.js's calculateLevel) rather than
 // computed here — this repo function stays a pure DB write, same as
 // incrementWalletBalance above; the level math lives in one place only.
-export async function awardXp(client, userId, { xpDelta, tokenDelta = 0, currentLevel }) {
+// standingDoor is optional — pass it to flip the Two-Door Reveal state
+// (e.g. "win" on a completed project); omit it to leave standing_door
+// untouched (COALESCE keeps the existing value when null is passed).
+export async function awardXp(client, userId, { xpDelta, tokenDelta = 0, currentLevel, standingDoor }) {
   const { rows } = await client.query(
     `UPDATE users
      SET xp = xp + $2,
          bridge_tokens = bridge_tokens + $3,
-         current_level = $4
+         current_level = $4,
+         standing_door = COALESCE($5::standing_door_state, standing_door)
      WHERE id = $1
      RETURNING *`,
-    [userId, xpDelta, tokenDelta, currentLevel]
+    [userId, xpDelta, tokenDelta, currentLevel, standingDoor ?? null]
   );
   return rows[0] ?? null;
 }
