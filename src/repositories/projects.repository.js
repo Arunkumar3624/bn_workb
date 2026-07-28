@@ -123,11 +123,19 @@ export async function create({
   status,
   applicationDeadline,
   estimatedDuration,
+  minExperienceYears,
+  maxExperienceYears,
+  educationLevel,
+  educationNotes,
+  requiredSkills,
 }) {
   const resolvedStatus = status ?? (workerId ? "INVITED" : "OPEN");
   const { rows } = await query(
-    `INSERT INTO projects (business_id, worker_id, title, description, budget, deadline, status, application_deadline, estimated_duration)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::project_status, $8, $9)
+    `INSERT INTO projects (
+       business_id, worker_id, title, description, budget, deadline, status, application_deadline, estimated_duration,
+       min_experience_years, max_experience_years, education_level, education_notes, required_skills
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7::project_status, $8, $9, $10, $11, $12::education_level, $13, $14)
      RETURNING *`,
     [
       businessId,
@@ -139,6 +147,11 @@ export async function create({
       resolvedStatus,
       applicationDeadline ?? null,
       estimatedDuration ?? null,
+      minExperienceYears ?? null,
+      maxExperienceYears ?? null,
+      educationLevel ?? "ANY",
+      educationNotes ?? null,
+      requiredSkills ?? [],
     ]
   );
   return rows[0];

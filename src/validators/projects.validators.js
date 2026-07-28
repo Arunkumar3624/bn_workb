@@ -17,13 +17,34 @@ const PATCHABLE_STATUSES = [
 // workerId omitted entirely posts an OPEN job board listing (see
 // projects.repository.js's create) — the existing direct-invite flow still
 // passes a real workerId and behaves exactly as before this feature existed.
+//
+// applicationWindow/estimatedDuration were read by createProject
+// (projects.controller.js) and written by projects.repository.js's create,
+// but were never actually declared here — z.object().parse() silently
+// strips any key not in the schema, so both fields were being dropped
+// before the controller ever saw them. Every job post's Application Window
+// and Estimated Duration have been silently discarded since they were
+// built; adding them here is what actually makes them persist.
 export const createProjectSchema = z.object({
   workerId: z.string().uuid().optional(),
   title: z.string().min(3).max(200),
   description: z.string().max(5000).optional(),
   budget: z.number().positive(),
   deadline: z.string().date().optional(), // "YYYY-MM-DD"
-});
+  applicationWindow: z.coerce.number().int().min(1).max(90).optional(),
+  estimatedDuration: z.string().max(50).optional(),
+  // Real, structured job requirements (see migrations/018_job_qualifications.sql)
+  // — Required Skills used to just get folded into `description` as a
+  // comma-separated blob; experience/education had no representation at all.
+  minExperienceYears: z.coerce.number().int().min(0).max(60).optional(),
+  maxExperienceYears: z.coerce.number().int().min(0).max(60).optional(),
+  educationLevel: z.enum(["ANY", "HIGH_SCHOOL", "DIPLOMA", "BACHELORS", "MASTERS", "PHD"]).optional(),
+  educationNotes: z.string().max(300).optional(),
+  requiredSkills: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+}).refine(
+  (data) => data.maxExperienceYears === undefined || data.minExperienceYears === undefined || data.maxExperienceYears >= data.minExperienceYears,
+  { message: "Max experience must be greater than or equal to min experience.", path: ["maxExperienceYears"] }
+);
 
 export const updateProjectStatusSchema = z.object({
   status: z.enum(PATCHABLE_STATUSES),

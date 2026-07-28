@@ -96,6 +96,11 @@ export const createProject = asyncHandler(async (req, res) => {
     deadline: req.body.deadline,
     applicationDeadline: resolveApplicationDeadline(req.body.applicationWindow),
     estimatedDuration: req.body.estimatedDuration,
+    minExperienceYears: req.body.minExperienceYears,
+    maxExperienceYears: req.body.maxExperienceYears,
+    educationLevel: req.body.educationLevel,
+    educationNotes: req.body.educationNotes,
+    requiredSkills: req.body.requiredSkills,
   });
 
   // The worker has never seen this project before now, so they can't have

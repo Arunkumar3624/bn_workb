@@ -38,6 +38,11 @@ CREATE TYPE transaction_direction AS ENUM ('credit', 'debit');
 -- even though this is an internal schema term, not user-facing text.
 CREATE TYPE funds_status AS ENUM ('HELD', 'RELEASED', 'REFUNDED');
 
+-- A job post's minimum qualification level — paired with education_notes
+-- (free text like "Computer Science or equivalent") since real education
+-- requirements vary too much for a fixed enum alone to capture.
+CREATE TYPE education_level AS ENUM ('ANY', 'HIGH_SCHOOL', 'DIPLOMA', 'BACHELORS', 'MASTERS', 'PHD');
+
 -- MASTER_ECONOMY_PLAN.md's Two-Door Reveal — 'hidden' until a worker
 -- reaches Door A (first completed job) or Door B (5 consecutive
 -- rejections); the app layer flips this, not the schema.
@@ -200,6 +205,14 @@ CREATE TABLE projects (
   -- once assigned (e.g. "3 Days", "2 Weeks"), shown on job cards.
   application_deadline TIMESTAMPTZ,
   estimated_duration   TEXT,
+  -- Real, structured job requirements — Required Skills used to just get
+  -- folded into `description` as a comma-separated blob; experience/
+  -- education had no representation at all. See migrations/018_job_qualifications.sql.
+  min_experience_years SMALLINT CHECK (min_experience_years >= 0),
+  max_experience_years SMALLINT CHECK (max_experience_years >= 0),
+  education_level      education_level NOT NULL DEFAULT 'ANY',
+  education_notes      TEXT,
+  required_skills      TEXT[] NOT NULL DEFAULT '{}',
   -- Append-only FSM history, e.g. [{"status": "FUNDS_SECURED", "at": "..."}].
   -- A normalized project_timeline_events table (project_id, status,
   -- occurred_at) would be the more correct audit-trail design — recommended
@@ -209,7 +222,9 @@ CREATE TABLE projects (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  CONSTRAINT chk_worker_business_distinct CHECK (worker_id <> business_id)
+  CONSTRAINT chk_worker_business_distinct CHECK (worker_id <> business_id),
+  CONSTRAINT chk_experience_range
+    CHECK (max_experience_years IS NULL OR min_experience_years IS NULL OR max_experience_years >= min_experience_years)
 );
 
 CREATE INDEX idx_projects_business_id ON projects (business_id);
