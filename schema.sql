@@ -454,6 +454,24 @@ CREATE TABLE messages (
 
 CREATE INDEX idx_messages_project_id_created_at ON messages (project_id, created_at);
 
+-- ─── 7b. user_blocks ────────────────────────────────────────────────────────
+-- WhatsApp-style blocking: either participant on a chat can block the
+-- other — blocks messaging in BOTH directions, reversible any time by the
+-- blocker. A plain user-to-user relationship, not scoped to one project.
+-- See migrations/017_user_blocks.sql.
+
+CREATE TABLE user_blocks (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  blocker_id  UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  blocked_id  UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_user_blocks UNIQUE (blocker_id, blocked_id),
+  CONSTRAINT chk_no_self_block CHECK (blocker_id <> blocked_id)
+);
+
+CREATE INDEX idx_user_blocks_blocker ON user_blocks (blocker_id);
+CREATE INDEX idx_user_blocks_blocked ON user_blocks (blocked_id);
+
 -- ─── 8. job_candidates ──────────────────────────────────────────────────────
 -- The Open Job Board — a project can start life unassigned (worker_id
 -- NULL, status OPEN), visible to every worker on the public feed. Workers

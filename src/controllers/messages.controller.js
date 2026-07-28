@@ -6,6 +6,7 @@ import * as projectsRepo from "../repositories/projects.repository.js";
 import * as messagesRepo from "../repositories/messages.repository.js";
 import * as submissionsRepo from "../repositories/submissions.repository.js";
 import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
+import * as userBlocksRepo from "../repositories/user_blocks.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 
 async function mustBeParticipant(req, projectId) {
@@ -19,6 +20,19 @@ async function mustBeParticipant(req, projectId) {
   return project;
 }
 
+// WhatsApp-style block, enforced server-side (not just a disabled composer
+// — see ChatThread.jsx) — blocks in either direction stop a send, same as
+// real blocking. Admin senders (system notices) bypass this entirely, same
+// as the participant check above.
+async function assertNotBlocked(req, project) {
+  if (req.user.role === "admin") return;
+  const otherUserId = project.worker_id === req.user.id ? project.business_id : project.worker_id;
+  if (!otherUserId) return;
+  const status = await userBlocksRepo.getStatus(req.user.id, otherUserId);
+  if (status.blocked_by_me) throw ApiError.forbidden("You've blocked this user — unblock them to send a message.");
+  if (status.blocked_me) throw ApiError.forbidden("You can't message this user.");
+}
+
 const CONTACT_INFO_MESSAGE =
   "Sharing phone numbers or email addresses in chat isn't allowed — keep contact details off WorkBridge.";
 
@@ -29,6 +43,7 @@ const CONTACT_INFO_MESSAGE =
 // Active Workspace conversation.
 export const sendMessage = asyncHandler(async (req, res) => {
   const project = await mustBeParticipant(req, req.params.id);
+  await assertNotBlocked(req, project);
 
   const { body } = req.body;
   if (containsContactInfo(body)) {
@@ -61,6 +76,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
 // pointing at a submission that doesn't exist.
 export const sendAttachmentMessage = asyncHandler(async (req, res) => {
   const project = await mustBeParticipant(req, req.params.id);
+  await assertNotBlocked(req, project);
 
   const { type, url, imageData, caption } = req.body;
   if (containsContactInfo(caption)) {
