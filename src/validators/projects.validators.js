@@ -40,7 +40,7 @@ export const createProjectSchema = z.object({
   maxExperienceYears: z.coerce.number().int().min(0).max(60).optional(),
   educationLevel: z.enum(["ANY", "HIGH_SCHOOL", "DIPLOMA", "BACHELORS", "MASTERS", "PHD"]).optional(),
   educationNotes: z.string().max(300).optional(),
-  requiredSkills: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  requiredSkills: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
 }).refine(
   (data) => data.maxExperienceYears === undefined || data.minExperienceYears === undefined || data.maxExperienceYears >= data.minExperienceYears,
   { message: "Max experience must be greater than or equal to min experience.", path: ["maxExperienceYears"] }
