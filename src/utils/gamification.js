@@ -72,3 +72,26 @@ export function calculateProgressBar(xp) {
 
   return Math.min(100, Math.max(0, progress));
 }
+
+// The Enterprise Partner Tier — a SEPARATE track from the worker XP/Level
+// system above. Businesses are tiered by total real spend (see
+// transactions.repository.js's sumFundsSecuredForBusiness), never XP —
+// "Do not use XP for businesses" per the design brief. Thresholds are a
+// first-cut illustrative draft, same "not yet validated" status as every
+// other number in this file until a payment gateway/real usage data exists
+// to tune them against.
+const BUSINESS_TIERS = [
+  { tier: "Bronze", threshold: 0 },
+  { tier: "Silver", threshold: 50000 },
+  { tier: "Gold", threshold: 200000 },
+];
+
+export function getBusinessTier(totalSpend) {
+  const safeSpend = Math.max(0, Number(totalSpend) || 0);
+  let current = BUSINESS_TIERS[0];
+  for (const t of BUSINESS_TIERS) {
+    if (safeSpend >= t.threshold) current = t;
+  }
+  const next = BUSINESS_TIERS.find((t) => t.threshold > safeSpend) ?? null;
+  return { tier: current.tier, nextTier: next?.tier ?? null, nextThreshold: next?.threshold ?? null };
+}

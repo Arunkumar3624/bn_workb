@@ -1,7 +1,9 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiError } from "../utils/ApiError.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as ledgerEventsRepo from "../repositories/ledger_events.repository.js";
-import { calculateLevel, calculateProgressBar, getTierData } from "../utils/gamification.js";
+import * as transactionsRepo from "../repositories/transactions.repository.js";
+import { calculateLevel, calculateProgressBar, getBusinessTier, getTierData } from "../utils/gamification.js";
 
 // GET /api/gamification/ledger — the caller's own real balance + earn
 // history (ledger_events). Never returns platform_fee_pct — only tier_name
@@ -24,4 +26,18 @@ export const getLedger = asyncHandler(async (req, res) => {
       events,
     },
   });
+});
+
+// GET /api/gamification/business-tier — a business-only, separate track
+// from the worker XP/Level system above. Tiered by real total spend
+// (transactions.repository.js's sumFundsSecuredForBusiness), never XP.
+export const getBusinessTierStatus = asyncHandler(async (req, res) => {
+  if (req.user.role !== "business") {
+    throw ApiError.forbidden("Enterprise Partner Tier is a business-only status.");
+  }
+
+  const totalSpend = await transactionsRepo.sumFundsSecuredForBusiness(req.user.id);
+  const { tier, nextTier, nextThreshold } = getBusinessTier(totalSpend);
+
+  res.json({ data: { totalSpend, tier, nextTier, nextThreshold } });
 });

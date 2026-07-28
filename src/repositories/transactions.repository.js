@@ -23,3 +23,17 @@ export async function listForUser(userId, { page, pageSize }) {
   );
   return rows;
 }
+
+// The Enterprise Partner Tier's real basis — total money a business has
+// actually committed to escrow (FUNDS_SECURED, the moment it leaves their
+// side), not XP. Counts every project regardless of outcome — spend is
+// spend whether the project later completes or disputes.
+export async function sumFundsSecuredForBusiness(businessId) {
+  const { rows } = await query(
+    `SELECT COALESCE(sum(amount), 0)::numeric AS total
+     FROM transactions
+     WHERE business_id = $1 AND type = 'FUNDS_SECURED'`,
+    [businessId]
+  );
+  return Number(rows[0].total);
+}
