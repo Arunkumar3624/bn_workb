@@ -288,6 +288,33 @@ CREATE TRIGGER trg_transactions_updated_at
   BEFORE UPDATE ON transactions
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ─── 3b. withdrawal_requests ────────────────────────────────────────────────
+-- A worker's cash-out request, with its own real lifecycle — PENDING the
+-- moment they request it (wallet_balance is debited immediately, so the
+-- same funds can't be withdrawn twice), then APPROVED (staff actually sent
+-- the money — a real transactions.WITHDRAWAL row is written at that point)
+-- or REJECTED (staff couldn't complete it — wallet_balance is refunded).
+-- See migrations/016_withdrawal_requests.sql.
+
+CREATE TYPE withdrawal_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+CREATE TYPE payout_method AS ENUM ('UPI', 'BANK_TRANSFER');
+
+CREATE TABLE withdrawal_requests (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  worker_id       UUID NOT NULL REFERENCES users(id),
+  amount          NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  payout_method   payout_method NOT NULL,
+  payout_details  TEXT NOT NULL,
+  status          withdrawal_status NOT NULL DEFAULT 'PENDING',
+  admin_note      TEXT,
+  resolved_by     UUID REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at     TIMESTAMPTZ
+);
+
+CREATE INDEX idx_withdrawal_requests_status ON withdrawal_requests (status, created_at);
+CREATE INDEX idx_withdrawal_requests_worker ON withdrawal_requests (worker_id, created_at DESC);
+
 -- ─── 4. reviews ─────────────────────────────────────────────────────────────
 -- The Success Hub's rating/review submission — one row per (project,
 -- reviewer). A completed project produces up to two rows: worker rates

@@ -351,6 +351,57 @@ export const completeProject = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+// POST /api/projects/:id/cancel-refund — the Ghosting Failsafe. A worker who
+// accepted work and secured funds but never delivered by the real hard
+// deadline (project.deadline) shouldn't leave a business's money stuck in
+// limbo waiting for a manual dispute review — this is a deliberately
+// instant, business-only self-service refund, consistent with the
+// platform's "Instant Escrow" model (no admin gate), NOT routed through
+// admin.controller.js's resolveDispute. Only reachable once the deadline
+// has actually passed and the worker never reached FILES_SUBMITTED.
+export const cancelAndRefund = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const result = await transaction(async (client) => {
+    const project = await projectsRepo.findByIdForUpdate(client, id);
+    if (!project) throw ApiError.notFound("Project not found.");
+
+    if (project.business_id !== req.user.id) {
+      throw ApiError.forbidden("Only the business on this project can cancel and refund it.");
+    }
+    if (!["FUNDS_SECURED", "WORK_IN_PROGRESS"].includes(project.status)) {
+      throw ApiError.badRequest(
+        `Cannot cancel & refund a project in status ${project.status} — expected FUNDS_SECURED or WORK_IN_PROGRESS.`
+      );
+    }
+    if (!project.deadline || new Date(project.deadline) > new Date()) {
+      throw ApiError.badRequest("Cannot cancel & refund before the delivery deadline has passed.");
+    }
+
+    const updatedProject = await projectsRepo.updateStatus(id, "CANCELLED", client);
+
+    const refundTxn = await transactionsRepo.insert(
+      {
+        projectId: id,
+        workerId: project.worker_id,
+        businessId: project.business_id,
+        type: "REFUND",
+        direction: "debit",
+        amount: Number(project.budget),
+        fundsStatus: "REFUNDED",
+        referenceNote: `Refunded — deadline passed without delivery – ${project.title}`,
+      },
+      client
+    );
+
+    return { project: updatedProject, transaction: refundTxn };
+  });
+
+  emitProjectEvent(result.project, "STATUS_CHANGED", { status: "CANCELLED", actorRole: "business", note: "Deadline missed — refunded" });
+
+  res.json({ data: result });
+});
+
 function round2(n) {
   return Math.round(n * 100) / 100;
 }

@@ -8,6 +8,7 @@ import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as messagesRepo from "../repositories/messages.repository.js";
 import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
+import * as withdrawalRequestsRepo from "../repositories/withdrawal_requests.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 
 const PLATFORM_FEE_PCT_FALLBACK = 8;
@@ -192,6 +193,83 @@ export const listTransactions = asyncHandler(async (_req, res) => {
 export const listPendingReleases = asyncHandler(async (_req, res) => {
   const data = await adminRepo.listPendingReleases();
   res.json({ data });
+});
+
+// ─── Withdrawals ────────────────────────────────────────────────────────────
+// GET /api/admin/withdrawals — the queue behind a worker's "Withdraw Funds"
+// request (see wallet.controller.js's withdraw): wallet_balance is already
+// debited by the time a request lands here, but no real UPI/bank transfer
+// has happened yet.
+export const listPendingWithdrawals = asyncHandler(async (_req, res) => {
+  const data = await withdrawalRequestsRepo.listPending();
+  res.json({ data });
+});
+
+// POST /api/admin/withdrawals/:id/resolve — body: { approved: boolean, note? }
+// approved: staff actually sent the money — write the real transactions.
+// WITHDRAWAL row now (this is the only place that row is ever created).
+// !approved: staff couldn't complete it (bad UPI id, bank rejected it,
+// etc.) — refund wallet_balance so the worker isn't out that money for a
+// transfer that never happened.
+export const resolveWithdrawal = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { approved, note } = req.body ?? {};
+  if (typeof approved !== "boolean") {
+    throw ApiError.badRequest("Body must include { approved: boolean }.");
+  }
+
+  const result = await transaction(async (client) => {
+    const request = await withdrawalRequestsRepo.findByIdForUpdate(client, id);
+    if (!request) throw ApiError.notFound("Withdrawal request not found.");
+    if (request.status !== "PENDING") {
+      throw ApiError.badRequest(`Cannot resolve a withdrawal request in status ${request.status} — expected PENDING.`);
+    }
+
+    const updatedRequest = await withdrawalRequestsRepo.markResolved(client, id, {
+      status: approved ? "APPROVED" : "REJECTED",
+      adminNote: note,
+      resolvedBy: req.user.id,
+    });
+
+    if (approved) {
+      const txn = await transactionsRepo.insert(
+        {
+          projectId: null,
+          businessId: null,
+          workerId: request.worker_id,
+          type: "WITHDRAWAL",
+          direction: "debit",
+          amount: Number(request.amount),
+          referenceNote: `Withdrawal to ${request.payout_details}`,
+        },
+        client
+      );
+
+      await adminRepo.insertPlatformLog(client, {
+        adminId: req.user.id,
+        action: "WITHDRAWAL_APPROVED",
+        targetUserId: request.worker_id,
+        notes: `Sent ${formatAmount(request.amount)} via ${request.payout_method} to ${request.payout_details}`,
+      });
+
+      return { request: updatedRequest, transaction: txn };
+    }
+
+    // Rejected — the withdrawn amount never actually left WorkBridge, so it
+    // goes back into the worker's spendable balance.
+    await usersRepo.incrementWalletBalance(client, request.worker_id, Number(request.amount));
+
+    await adminRepo.insertPlatformLog(client, {
+      adminId: req.user.id,
+      action: "WITHDRAWAL_REJECTED",
+      targetUserId: request.worker_id,
+      notes: note || `Refunded ${formatAmount(request.amount)} — withdrawal could not be completed`,
+    });
+
+    return { request: updatedRequest };
+  });
+
+  res.json({ data: result });
 });
 
 function formatAmount(n) {

@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
+import * as withdrawalRequestsRepo from "../repositories/withdrawal_requests.repository.js";
 
 // GET /api/wallet — the caller's own balance + a page of their ledger.
 // There's no :userId param — you can only ever fetch your own wallet,
@@ -23,11 +24,16 @@ export const getWallet = asyncHandler(async (req, res) => {
   });
 });
 
-// POST /api/wallet/withdraw — cash out to a bank/UPI destination. Debits
-// wallet_balance and records a WITHDRAWAL row atomically so a crash between
-// the two can't leave the ledger and the cached balance disagreeing.
+// POST /api/wallet/withdraw — requests a cash-out to a real UPI id/bank
+// account. Debits wallet_balance immediately (so the same funds can't be
+// requested twice) and opens a PENDING withdrawal_requests row — but does
+// NOT write a transactions.WITHDRAWAL row yet, since no real money has
+// actually moved to the worker's bank/UPI account. That only happens once
+// WorkBridge staff mark it resolved (see admin.controller.js's
+// resolveWithdrawal) — same human-in-the-loop shape as requestRelease /
+// completeProject in projects.controller.js.
 export const withdraw = asyncHandler(async (req, res) => {
-  const { amount, destination } = req.body;
+  const { amount, payoutMethod, payoutDetails } = req.body;
 
   const result = await transaction(async (client) => {
     const user = await usersRepo.findForUpdate(client, req.user.id);
@@ -41,25 +47,24 @@ export const withdraw = asyncHandler(async (req, res) => {
     }
 
     const updatedUser = await usersRepo.incrementWalletBalance(client, req.user.id, -amount);
-    const txn = await transactionsRepo.insert(
-      {
-        // A WITHDRAWAL isn't tied to any one project or business — schema.sql
-        // makes project_id/business_id nullable specifically for this case
-        // (chk_project_scoped_unless_withdrawal enforces that every other
-        // transaction type still requires both).
-        projectId: null,
-        businessId: null,
-        workerId: req.user.id,
-        type: "WITHDRAWAL",
-        direction: "debit",
-        amount,
-        referenceNote: `Withdrawal to ${destination}`,
-      },
-      client
-    );
+    const request = await withdrawalRequestsRepo.insert(client, {
+      workerId: req.user.id,
+      amount,
+      payoutMethod,
+      payoutDetails,
+    });
 
-    return { balance: updatedUser.wallet_balance, transaction: txn };
+    return { balance: updatedUser.wallet_balance, request };
   });
 
   res.status(201).json({ data: result });
+});
+
+// GET /api/wallet/withdrawals — the worker's own withdrawal request
+// history (PENDING/APPROVED/REJECTED), so WorkerWallet.jsx can honestly show
+// "still pending" instead of implying a withdrawal completed the moment it
+// was requested.
+export const listMyWithdrawals = asyncHandler(async (req, res) => {
+  const data = await withdrawalRequestsRepo.listForWorker(req.user.id);
+  res.json({ data });
 });

@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const withdrawSchema = z.object({
   amount: z.number().positive(),
-  destination: z.string().min(3).max(120), // e.g. "HDFC Bank ...4521" or a UPI id
+  payoutMethod: z.enum(["UPI", "BANK_TRANSFER"]),
+  payoutDetails: z.string().min(3).max(200), // a real UPI id, or "Bank: X · Acc: Y · IFSC: Z"
 });
 
 export const ledgerQuerySchema = z.object({

@@ -8,6 +8,11 @@ import { z } from "zod";
 export const createCandidateSchema = z.object({
   workerId: z.string().uuid().optional(),
   message: z.string().trim().max(1000).optional(),
+  // The "Fairness First" Behavior Score signal (see ApplicationQuizModal.jsx)
+  // — only meaningful when a worker is applying (source=APPLICATION); a
+  // business inviting someone never sends this. true = answered all 15
+  // questions (+15), false = skipped the quiz (-5), omitted = no adjustment.
+  quizAnswered: z.boolean().optional(),
 });
 
 export const respondToCandidateSchema = z.object({

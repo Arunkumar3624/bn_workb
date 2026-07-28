@@ -45,11 +45,27 @@ export const createCandidate = asyncHandler(async (req, res) => {
 
   let candidate;
   try {
-    candidate = await candidatesRepo.create({
-      projectId: project.id,
-      workerId,
-      source,
-      message: req.body.message,
+    // Only an APPLICATION (the worker's own choice to engage with the quiz
+    // or skip it) ever adjusts Behavior Score — an INVITE is the business's
+    // action, not the worker's, so quizAnswered is never sent/read for it.
+    const quizAnswered = source === "APPLICATION" ? req.body.quizAnswered : undefined;
+
+    candidate = await transaction(async (client) => {
+      const created = await candidatesRepo.create(
+        {
+          projectId: project.id,
+          workerId,
+          source,
+          message: req.body.message,
+        },
+        client
+      );
+
+      if (typeof quizAnswered === "boolean") {
+        await usersRepo.adjustBehaviorScore(client, workerId, quizAnswered ? 15 : -5);
+      }
+
+      return created;
     });
   } catch (err) {
     if (err.code === UNIQUE_VIOLATION) {

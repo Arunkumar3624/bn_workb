@@ -7,6 +7,7 @@ import {
   updateProjectStatusSchema,
 } from "../validators/projects.validators.js";
 import {
+  cancelAndRefund,
   completeProject,
   createProject,
   getProject,
@@ -54,6 +55,9 @@ projectsRouter.post("/:id/secure-funds", requireRole("business"), secureFunds);
 // Panel's Fund Releases tab, so this route is admin-only, not business.
 projectsRouter.post("/:id/request-release", requireRole("business"), requestRelease);
 projectsRouter.post("/:id/complete", requireRole("admin"), completeProject);
+// The Ghosting Failsafe — business-only, instant, deadline-gated (see
+// cancelAndRefund's own comment for why this stays out of admin's hands).
+projectsRouter.post("/:id/cancel-refund", requireRole("business"), cancelAndRefund);
 
 // The Trust Checker — either participant can submit a deliverable (link or
 // small image); every submission starts PENDING_REVIEW (see

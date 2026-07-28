@@ -8,8 +8,8 @@ import { query } from "../db/client.js";
 // 23505) — the controller maps that to a 409 Conflict, same pattern
 // reviews.repository.js's create() already documents for its own unique
 // constraint.
-export async function create({ projectId, workerId, source, message }) {
-  const { rows } = await query(
+export async function create({ projectId, workerId, source, message }, client = { query }) {
+  const { rows } = await client.query(
     `INSERT INTO job_candidates (project_id, worker_id, source, message)
      VALUES ($1, $2, $3, $4)
      RETURNING *`,
