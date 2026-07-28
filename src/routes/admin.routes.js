@@ -9,6 +9,7 @@ import {
   resolveDispute,
   listAllUsers,
   listTransactions,
+  listPendingReleases,
   listBlockedAttempts,
   resolveBlockedAttempt,
   searchMessages,
@@ -39,6 +40,7 @@ adminRouter.get("/disputes", listDisputes);
 adminRouter.post("/disputes/:id/resolve", resolveDispute);
 
 adminRouter.get("/transactions", listTransactions);
+adminRouter.get("/pending-releases", listPendingReleases);
 
 // Security Monitor — blocked_message_attempts is the only record of a
 // contact-info send that got hard-blocked (see messages.controller.js).

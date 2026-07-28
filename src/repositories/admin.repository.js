@@ -187,8 +187,27 @@ export async function listAllInvoices() {
      FROM projects p
      JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
-     WHERE p.status IN ('FUNDS_SECURED', 'WORK_IN_PROGRESS', 'FILES_SUBMITTED', 'COMPLETED', 'DISPUTED')
+     WHERE p.status IN ('FUNDS_SECURED', 'WORK_IN_PROGRESS', 'FILES_SUBMITTED', 'PENDING_RELEASE', 'COMPLETED', 'DISPUTED')
      ORDER BY p.updated_at DESC`
+  );
+  return rows;
+}
+
+// ─── Fund releases queue ──────────────────────────────────────────────────────
+// A business's "Approve & Release" click only requests a release
+// (FILES_SUBMITTED -> PENDING_RELEASE, see requestRelease in
+// projects.controller.js) — this is the queue WorkBridge staff actually act
+// on to move real money (completeProject), the human-in-the-loop step this
+// escrow model requires.
+export async function listPendingReleases() {
+  const { rows } = await query(
+    `SELECT p.*, w.name AS worker_name,
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name
+     FROM projects p
+     JOIN public_user_profiles w ON w.id = p.worker_id
+     JOIN public_user_profiles b ON b.id = p.business_id
+     WHERE p.status = 'PENDING_RELEASE'
+     ORDER BY p.updated_at ASC`
   );
   return rows;
 }

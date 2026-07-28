@@ -3,17 +3,20 @@ import assert from "node:assert/strict";
 import { canTransition, nextStatus, PROJECT_STATUS_FLOW } from "../src/domain/projectStatus.js";
 
 // The real FSM: INVITED -> ACCEPTED -> FUNDS_SECURED -> WORK_IN_PROGRESS ->
-// FILES_SUBMITTED -> COMPLETED. Note this is the actual enum used across
-// the codebase (schema.sql's project_status) — not the generic
-// PENDING/ACTIVE/SUBMITTED naming from the task brief, which doesn't match
-// this system.
-
+// FILES_SUBMITTED -> PENDING_RELEASE -> COMPLETED. Note this is the actual
+// enum used across the codebase (schema.sql's project_status) — not the
+// generic PENDING/ACTIVE/SUBMITTED naming from the task brief, which
+// doesn't match this system. PENDING_RELEASE is the human-in-the-loop step:
+// a business's "Approve & Release" only requests a release (requestRelease
+// in projects.controller.js); only WorkBridge staff (admin) can move
+// PENDING_RELEASE -> COMPLETED, via completeProject's atomic endpoint.
 test("nextStatus walks the flow forward, one step at a time", () => {
   assert.equal(nextStatus("INVITED"), "ACCEPTED");
   assert.equal(nextStatus("ACCEPTED"), "FUNDS_SECURED");
   assert.equal(nextStatus("FUNDS_SECURED"), "WORK_IN_PROGRESS");
   assert.equal(nextStatus("WORK_IN_PROGRESS"), "FILES_SUBMITTED");
-  assert.equal(nextStatus("FILES_SUBMITTED"), "COMPLETED");
+  assert.equal(nextStatus("FILES_SUBMITTED"), "PENDING_RELEASE");
+  assert.equal(nextStatus("PENDING_RELEASE"), "COMPLETED");
 });
 
 test("nextStatus returns null for the terminal status and unknown statuses", () => {
@@ -40,6 +43,11 @@ test("canTransition rejects skipping a step in the flow", () => {
 test("canTransition never allows COMPLETED via a plain transition — only /complete's atomic endpoint reaches it", () => {
   assert.equal(canTransition({ fromStatus: "FILES_SUBMITTED", toStatus: "COMPLETED", actorRole: "business" }), false);
   assert.equal(canTransition({ fromStatus: "FILES_SUBMITTED", toStatus: "COMPLETED", actorRole: "admin" }), false);
+  assert.equal(canTransition({ fromStatus: "PENDING_RELEASE", toStatus: "COMPLETED", actorRole: "admin" }), false);
+});
+
+test("canTransition never allows PENDING_RELEASE via a plain transition — only requestRelease's atomic endpoint reaches it", () => {
+  assert.equal(canTransition({ fromStatus: "FILES_SUBMITTED", toStatus: "PENDING_RELEASE", actorRole: "business" }), false);
 });
 
 test("canTransition allows the one backward step — business requesting a revision", () => {

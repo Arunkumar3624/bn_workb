@@ -1,0 +1,13 @@
+-- Incremental migration — see migrations/008_job_board.sql for the same
+-- ALTER TYPE ... ADD VALUE pattern.
+--
+-- Adds a real human-in-the-loop step to the payout FSM: a business no
+-- longer instantly pays a worker by clicking "Approve & Release" — that
+-- click now only requests the release. The actual money movement (ledger
+-- rows + wallet credit, in projects.controller.js's completeProject) only
+-- happens when WorkBridge staff act on it from the Admin Panel's Fund
+-- Releases tab. FILES_SUBMITTED -> DISPUTED/CANCELLED already worked and
+-- keeps working from PENDING_RELEASE too (canTransition treats CANCELLED/
+-- DISPUTED as reachable from any non-terminal status), so a business or
+-- worker can still stop a release before staff act on it.
+ALTER TYPE project_status ADD VALUE IF NOT EXISTS 'PENDING_RELEASE' BEFORE 'COMPLETED';

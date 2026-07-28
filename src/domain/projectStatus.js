@@ -9,6 +9,7 @@ export const PROJECT_STATUS_FLOW = [
   "FUNDS_SECURED",
   "WORK_IN_PROGRESS",
   "FILES_SUBMITTED",
+  "PENDING_RELEASE",
   "COMPLETED",
 ];
 
@@ -19,7 +20,13 @@ export const PROJECT_STATUS_META = {
   ACCEPTED: { actionBy: "business" }, // business secures funds — POST /secure-funds only, never PATCH (see projects.controller.js)
   FUNDS_SECURED: { actionBy: "worker" }, // worker starts work
   WORK_IN_PROGRESS: { actionBy: "worker" }, // worker submits files
-  FILES_SUBMITTED: { actionBy: "business" }, // business releases payment — POST /complete only, never PATCH
+  // Business requests release via plain PATCH (no ledger side effect yet —
+  // that's why this step doesn't need its own atomic endpoint).
+  FILES_SUBMITTED: { actionBy: "business" },
+  // Only WorkBridge staff can move this one, and only via the atomic
+  // /complete endpoint (real ledger writes + wallet credit) — never PATCH,
+  // same reasoning FILES_SUBMITTED -> COMPLETED used to have.
+  PENDING_RELEASE: { actionBy: "admin" },
 };
 
 export function nextStatus(current) {
@@ -41,6 +48,15 @@ export function canTransition({ fromStatus, toStatus, actorRole }) {
 
   if (toStatus === "COMPLETED") {
     // Only reachable via the atomic /complete endpoint, never a plain PATCH.
+    return false;
+  }
+
+  if (toStatus === "PENDING_RELEASE") {
+    // Also unreachable via a plain PATCH once it has ledger consequences
+    // beyond a status flip — today it doesn't, but keeping it out of the
+    // generic PATCH's reach mirrors FILES_SUBMITTED -> COMPLETED's original
+    // reasoning (an explicit, named business action, not a generic status
+    // string the client picks). See requestRelease in projects.controller.js.
     return false;
   }
 

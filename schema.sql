@@ -17,6 +17,7 @@ CREATE TYPE project_status AS ENUM (
   'FUNDS_SECURED',
   'WORK_IN_PROGRESS',
   'FILES_SUBMITTED',
+  'PENDING_RELEASE',   -- business requested release (see requestRelease); only WorkBridge staff can complete the payout from here
   'COMPLETED',
   'CANCELLED',
   'DISPUTED'

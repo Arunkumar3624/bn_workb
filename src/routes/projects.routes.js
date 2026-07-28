@@ -12,6 +12,7 @@ import {
   getProject,
   listOpenProjects,
   listProjects,
+  requestRelease,
   secureFunds,
   updateProjectStatus,
 } from "../controllers/projects.controller.js";
@@ -48,7 +49,11 @@ projectsRouter.get("/:id/candidates", listCandidatesForProject);
 // in the route table, not buried in an if-branch inside the generic PATCH
 // handler.
 projectsRouter.post("/:id/secure-funds", requireRole("business"), secureFunds);
-projectsRouter.post("/:id/complete", requireRole("business"), completeProject);
+// The business only ever *requests* a release now — the actual payout
+// (completeProject) requires WorkBridge staff to act on it from the Admin
+// Panel's Fund Releases tab, so this route is admin-only, not business.
+projectsRouter.post("/:id/request-release", requireRole("business"), requestRelease);
+projectsRouter.post("/:id/complete", requireRole("admin"), completeProject);
 
 // The Trust Checker — either participant can submit a deliverable (link or
 // small image); every submission starts PENDING_REVIEW (see

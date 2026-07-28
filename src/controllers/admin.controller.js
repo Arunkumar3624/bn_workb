@@ -183,6 +183,17 @@ export const listTransactions = asyncHandler(async (_req, res) => {
   res.json({ data });
 });
 
+// ─── Fund Releases ─────────────────────────────────────────────────────────
+// GET /api/admin/pending-releases — the queue behind the "Approve &
+// Release" button: a business's click only requests a release (see
+// requestRelease in projects.controller.js); staff complete the actual
+// payout by calling POST /api/projects/:id/complete (now admin-only),
+// reusing that same endpoint rather than duplicating its ledger logic here.
+export const listPendingReleases = asyncHandler(async (_req, res) => {
+  const data = await adminRepo.listPendingReleases();
+  res.json({ data });
+});
+
 function formatAmount(n) {
   return `₹${Number(n).toLocaleString("en-IN")}`;
 }

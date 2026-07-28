@@ -189,8 +189,36 @@ export const secureFunds = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
-// POST /api/projects/:id/complete — the Logic Bridge. Only reachable when
-// FILES_SUBMITTED, only by the business on the project. Runs atomically:
+// POST /api/projects/:id/request-release — business's "Approve & Release"
+// action. Only moves FILES_SUBMITTED -> PENDING_RELEASE; no ledger writes,
+// no wallet credit — the business is signaling WorkBridge to release funds
+// it's holding, not releasing them itself. The actual payout only happens
+// when staff act on it via completeProject below, from the Admin Panel's
+// Fund Releases tab.
+export const requestRelease = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const project = await projectsRepo.findById(id);
+  if (!project) throw ApiError.notFound("Project not found.");
+
+  if (project.business_id !== req.user.id) {
+    throw ApiError.forbidden("Only the business on this project can request a release.");
+  }
+  if (project.status !== "FILES_SUBMITTED") {
+    throw ApiError.badRequest(`Cannot request release for a project in status ${project.status} — expected FILES_SUBMITTED.`);
+  }
+
+  const updated = await projectsRepo.updateStatus(id, "PENDING_RELEASE");
+
+  emitProjectEvent(updated, "STATUS_CHANGED", { status: "PENDING_RELEASE", actorRole: "business" });
+
+  res.json({ data: updated });
+});
+
+// POST /api/projects/:id/complete — the Logic Bridge, and the one place
+// real money actually moves. Only reachable when PENDING_RELEASE, only by
+// WorkBridge staff (admin) — a business's own "Approve & Release" click no
+// longer reaches this directly, see requestRelease above. Runs atomically:
 // project status -> COMPLETED, a PAYOUT credit + PLATFORM_FEE debit land in
 // the ledger, and the worker's wallet_balance is incremented — all inside
 // one DB transaction, so a failure at any step rolls back every part of it
@@ -204,11 +232,11 @@ export const completeProject = asyncHandler(async (req, res) => {
     const project = await projectsRepo.findByIdForUpdate(client, id);
     if (!project) throw ApiError.notFound("Project not found.");
 
-    if (project.business_id !== req.user.id) {
-      throw ApiError.forbidden("Only the business on this project can release payment.");
+    if (req.user.role !== "admin") {
+      throw ApiError.forbidden("Only WorkBridge staff can release secured funds.");
     }
-    if (project.status !== "FILES_SUBMITTED") {
-      throw ApiError.badRequest(`Cannot complete a project in status ${project.status} — expected FILES_SUBMITTED.`);
+    if (project.status !== "PENDING_RELEASE") {
+      throw ApiError.badRequest(`Cannot complete a project in status ${project.status} — expected PENDING_RELEASE.`);
     }
 
     // a. Update project status
