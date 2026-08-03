@@ -40,7 +40,23 @@ export const createProjectSchema = z.object({
   maxExperienceYears: z.coerce.number().int().min(0).max(60).optional(),
   educationLevel: z.enum(["ANY", "HIGH_SCHOOL", "DIPLOMA", "BACHELORS", "MASTERS", "PHD"]).optional(),
   educationNotes: z.string().max(300).optional(),
-  requiredSkills: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+  // A "skill" is a short tag ("React", "Node.js"), not a sentence — word
+  // count (not just character length) is what actually catches a pasted
+  // paragraph, since a single long compound word could still pass a
+  // char-only check. Mirrors the frontend's own check (formValidation.js).
+  requiredSkills: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .refine((s) => s.split(/\s+/).filter(Boolean).length <= 5, {
+          message: "Each skill must be 5 words or fewer.",
+        })
+    )
+    .max(20)
+    .optional(),
 }).refine(
   (data) => data.maxExperienceYears === undefined || data.minExperienceYears === undefined || data.maxExperienceYears >= data.minExperienceYears,
   { message: "Max experience must be greater than or equal to min experience.", path: ["maxExperienceYears"] }
