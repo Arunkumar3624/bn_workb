@@ -624,6 +624,15 @@ CREATE TABLE ledger_events (
 
 CREATE INDEX idx_ledger_events_user_id_created_at ON ledger_events (user_id, created_at DESC);
 
+-- migrations/016_withdrawal_requests.sql added these two values to
+-- platform_log_action — the only piece of migrations 015-020 that wasn't
+-- already folded into this file's main body (withdrawal_requests,
+-- user_blocks, support_threads/messages, and the projects table's
+-- qualification/urgency columns above are all already current — see each
+-- section's own "See migrations/0XX_....sql" comment).
+ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'WITHDRAWAL_APPROVED';
+ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'WITHDRAWAL_REJECTED';
+
 -- migrations/021_perk_purchases.sql — turns Business Perks Shop / Worker
 -- Token Shop "Purchase" into a real, Ledger-backed spend (see
 -- perks.controller.js). One row per redemption, with a resolved expiry for
