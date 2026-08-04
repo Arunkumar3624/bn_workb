@@ -6,6 +6,7 @@ import * as projectsRepo from "../repositories/projects.repository.js";
 import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as ledgerEventsRepo from "../repositories/ledger_events.repository.js";
+import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 import { calculateLevel } from "../utils/gamification.js";
 
@@ -152,50 +153,60 @@ export const updateProjectStatus = asyncHandler(async (req, res) => {
   res.json({ data: updated });
 });
 
-// POST /api/projects/:id/secure-funds — ACCEPTED -> FUNDS_SECURED, only by
-// the business on the project. Its own atomic endpoint (not a plain PATCH)
-// because it writes a FUNDS_SECURED ledger row alongside the status change —
-// same reasoning as completeProject below. No wallet_balance touched here:
-// only workers hold a spendable balance in this schema, and this transaction
-// represents money moving into holding, not being paid out yet.
-export const secureFunds = asyncHandler(async (req, res) => {
+// POST /api/projects/:id/fund-escrow — ACCEPTED -> PENDING_FUNDS, only by
+// the business on the project. Body: { utrReference, screenshotUrl }.
+//
+// This does NOT grant FUNDS_SECURED itself — it only records the business's
+// claim that they transferred the money (a real UTR/transaction ID plus a
+// screenshot as proof) and moves the project into a "verification pending"
+// state. Only WorkBridge staff confirming the transfer actually happened
+// (resolveEscrowFunding in admin.controller.js) writes the real
+// FUNDS_SECURED ledger row — same human-in-the-loop shape as
+// requestRelease/completeProject below. Previously this endpoint
+// (secureFunds) flipped straight to FUNDS_SECURED on a bare click with zero
+// payment proof required, and that same unverified budget figure is what
+// later became the worker's real payout at completeProject — this closes
+// that gap.
+export const fundEscrow = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const { utrReference, screenshotUrl } = req.body ?? {};
+
+  if (!utrReference || !String(utrReference).trim()) {
+    throw ApiError.badRequest("A transaction ID / UTR reference is required.");
+  }
+  if (!screenshotUrl || !String(screenshotUrl).trim()) {
+    throw ApiError.badRequest("A payment screenshot is required.");
+  }
 
   const result = await transaction(async (client) => {
     const project = await projectsRepo.findByIdForUpdate(client, id);
     if (!project) throw ApiError.notFound("Project not found.");
 
     if (project.business_id !== req.user.id) {
-      throw ApiError.forbidden("Only the business on this project can secure funds.");
+      throw ApiError.forbidden("Only the business on this project can fund escrow.");
     }
     if (project.status !== "ACCEPTED") {
-      throw ApiError.badRequest(`Cannot secure funds for a project in status ${project.status} — expected ACCEPTED.`);
+      throw ApiError.badRequest(`Cannot fund escrow for a project in status ${project.status} — expected ACCEPTED.`);
     }
 
-    const updatedProject = await projectsRepo.updateStatus(id, "FUNDS_SECURED", client);
+    const updatedProject = await projectsRepo.updateStatus(id, "PENDING_FUNDS", client);
 
-    const txn = await transactionsRepo.insert(
-      {
-        projectId: id,
-        workerId: project.worker_id,
-        businessId: project.business_id,
-        type: "FUNDS_SECURED",
-        direction: "debit",
-        amount: Number(project.budget),
-        fundsStatus: "HELD",
-        referenceNote: `Funds secured – ${project.title}`,
-      },
-      client
-    );
+    const request = await escrowFundingRepo.insert(client, {
+      projectId: id,
+      businessId: req.user.id,
+      amount: Number(project.budget),
+      utrReference: String(utrReference).trim(),
+      screenshotUrl,
+    });
 
-    return { project: updatedProject, transaction: txn };
+    return { project: updatedProject, request };
   });
 
   // Emitted after commit, never before — the business's own tab already has
   // this via the HTTP response; this nudges the worker's open tab live.
-  emitProjectEvent(result.project, "FUNDS_SECURED", { amount: Number(result.project.budget) });
+  emitProjectEvent(result.project, "STATUS_CHANGED", { status: "PENDING_FUNDS", actorRole: "business" });
 
-  res.json({ data: result });
+  res.status(201).json({ data: result });
 });
 
 // POST /api/projects/:id/request-release — business's "Approve & Release"

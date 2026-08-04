@@ -14,6 +14,7 @@ CREATE TYPE project_status AS ENUM (
   'OPEN',              -- public job post, no worker assigned yet — see job_candidates
   'INVITED',           -- business has proposed/invited, worker hasn't responded
   'ACCEPTED',           -- worker accepted (or business hired) but no funds moved yet
+  'PENDING_FUNDS',      -- business submitted transfer proof (see fundEscrow); only WorkBridge staff verifying it grants FUNDS_SECURED
   'FUNDS_SECURED',
   'WORK_IN_PROGRESS',
   'FILES_SUBMITTED',
@@ -649,6 +650,33 @@ CREATE TABLE perk_purchases (
 );
 
 CREATE INDEX idx_perk_purchases_user_id_created_at ON perk_purchases (user_id, created_at DESC);
+
+-- migrations/022_escrow_funding.sql — closes a real gap: ACCEPTED ->
+-- FUNDS_SECURED used to be an instant, unverified status flip (see
+-- projects.controller.js's old secureFunds). Now the business submits real
+-- transfer proof (UTR + screenshot), landing the project in PENDING_FUNDS;
+-- only WorkBridge staff verifying it (resolveEscrowFunding in
+-- admin.controller.js) grants FUNDS_SECURED and writes the real ledger
+-- row. Same human-in-the-loop shape as PENDING_RELEASE/completeProject.
+ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'ESCROW_FUNDING_APPROVED';
+ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'ESCROW_FUNDING_REJECTED';
+
+CREATE TABLE escrow_funding_requests (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  business_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  amount          NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  utr_reference   TEXT NOT NULL,
+  screenshot_url  TEXT NOT NULL,
+  status          withdrawal_status NOT NULL DEFAULT 'PENDING',
+  admin_note      TEXT,
+  resolved_by     UUID REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at     TIMESTAMPTZ
+);
+
+CREATE INDEX idx_escrow_funding_requests_status  ON escrow_funding_requests (status, created_at);
+CREATE INDEX idx_escrow_funding_requests_project ON escrow_funding_requests (project_id);
 
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --

@@ -6,6 +6,7 @@
 export const PROJECT_STATUS_FLOW = [
   "INVITED",
   "ACCEPTED",
+  "PENDING_FUNDS",
   "FUNDS_SECURED",
   "WORK_IN_PROGRESS",
   "FILES_SUBMITTED",
@@ -17,7 +18,11 @@ export const PROJECT_STATUS_FLOW = [
 // this status and into the next one in PROJECT_STATUS_FLOW.
 export const PROJECT_STATUS_META = {
   INVITED: { actionBy: "worker" }, // worker accepts the invite via PATCH
-  ACCEPTED: { actionBy: "business" }, // business secures funds — POST /secure-funds only, never PATCH (see projects.controller.js)
+  ACCEPTED: { actionBy: "business" }, // business submits transfer proof — POST /fund-escrow only, never PATCH (see projects.controller.js)
+  // Only WorkBridge staff can move this one, and only via the atomic
+  // /admin/escrow-funding/:id/resolve endpoint (real ledger write, same
+  // reasoning PENDING_RELEASE -> COMPLETED uses) — never PATCH.
+  PENDING_FUNDS: { actionBy: "admin" },
   FUNDS_SECURED: { actionBy: "worker" }, // worker starts work
   WORK_IN_PROGRESS: { actionBy: "worker" }, // worker submits files
   // Business requests release via plain PATCH (no ledger side effect yet —
@@ -57,6 +62,15 @@ export function canTransition({ fromStatus, toStatus, actorRole }) {
     // generic PATCH's reach mirrors FILES_SUBMITTED -> COMPLETED's original
     // reasoning (an explicit, named business action, not a generic status
     // string the client picks). See requestRelease in projects.controller.js.
+    return false;
+  }
+
+  if (toStatus === "PENDING_FUNDS" || toStatus === "FUNDS_SECURED") {
+    // PENDING_FUNDS only via POST /fund-escrow (writes an
+    // escrow_funding_requests row alongside the flip), FUNDS_SECURED only
+    // via the admin's /escrow-funding/:id/resolve (writes the real ledger
+    // row) — neither is a plain status string a client should ever pick
+    // through the generic PATCH. See projects.controller.js/admin.controller.js.
     return false;
   }
 

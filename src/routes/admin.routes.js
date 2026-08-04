@@ -12,6 +12,8 @@ import {
   listPendingReleases,
   listPendingWithdrawals,
   resolveWithdrawal,
+  listPendingEscrowFunding,
+  resolveEscrowFunding,
   listBlockedAttempts,
   resolveBlockedAttempt,
   searchMessages,
@@ -46,6 +48,9 @@ adminRouter.get("/pending-releases", listPendingReleases);
 
 adminRouter.get("/withdrawals", listPendingWithdrawals);
 adminRouter.post("/withdrawals/:id/resolve", resolveWithdrawal);
+
+adminRouter.get("/escrow-funding", listPendingEscrowFunding);
+adminRouter.post("/escrow-funding/:id/resolve", resolveEscrowFunding);
 
 // Security Monitor — blocked_message_attempts is the only record of a
 // contact-info send that got hard-blocked (see messages.controller.js).

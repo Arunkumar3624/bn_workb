@@ -2,10 +2,11 @@ import { z } from "zod";
 
 // Mirrors project_status in schema.sql. PATCH /api/projects/:id is for the
 // non-terminal FSM steps only — COMPLETED is reachable exclusively through
-// POST /api/projects/:id/complete, and FUNDS_SECURED exclusively through
-// POST /api/projects/:id/secure-funds, since both routes run atomic ledger
-// side effects (schema.sql's chk_ constraints don't enforce transition
-// order — that's the API's job, not the DB's).
+// POST /api/projects/:id/complete, PENDING_FUNDS exclusively through POST
+// /api/projects/:id/fund-escrow, and FUNDS_SECURED exclusively through the
+// admin's POST /api/admin/escrow-funding/:id/resolve, since all three run
+// atomic ledger side effects (schema.sql's chk_ constraints don't enforce
+// transition order — that's the API's job, not the DB's).
 const PATCHABLE_STATUSES = [
   "ACCEPTED",
   "WORK_IN_PROGRESS",

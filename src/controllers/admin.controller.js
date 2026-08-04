@@ -9,6 +9,7 @@ import * as usersRepo from "../repositories/users.repository.js";
 import * as messagesRepo from "../repositories/messages.repository.js";
 import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
 import * as withdrawalRequestsRepo from "../repositories/withdrawal_requests.repository.js";
+import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 
 const PLATFORM_FEE_PCT_FALLBACK = 8;
@@ -275,6 +276,100 @@ export const resolveWithdrawal = asyncHandler(async (req, res) => {
 function formatAmount(n) {
   return `₹${Number(n).toLocaleString("en-IN")}`;
 }
+
+// ─── Escrow Funding ─────────────────────────────────────────────────────────
+// The queue behind a business's "Fund Escrow" submission (see
+// projects.controller.js's fundEscrow) — the project is already sitting in
+// PENDING_FUNDS, but no FUNDS_SECURED ledger row exists yet. Only a
+// verified transfer (staff actually checking the UTR/screenshot) creates
+// one — same "self-reported request, real WorkBridge action grants it"
+// shape as withdrawals above.
+export const listPendingEscrowFunding = asyncHandler(async (_req, res) => {
+  const data = await escrowFundingRepo.listPending();
+  res.json({ data });
+});
+
+// POST /api/admin/escrow-funding/:id/resolve — body: { approved: boolean, note? }
+// approved: staff confirmed the transfer actually landed — the project
+// moves PENDING_FUNDS -> FUNDS_SECURED and the real FUNDS_SECURED ledger
+// row is written NOW (not at submission time, since submission is only an
+// unverified claim until this point).
+// !approved: staff couldn't verify it (UTR doesn't match, screenshot
+// doesn't check out, etc.) — the project reverts to ACCEPTED so the
+// business can submit a corrected transfer.
+export const resolveEscrowFunding = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { approved, note } = req.body ?? {};
+  if (typeof approved !== "boolean") {
+    throw ApiError.badRequest("Body must include { approved: boolean }.");
+  }
+
+  const result = await transaction(async (client) => {
+    const request = await escrowFundingRepo.findByIdForUpdate(client, id);
+    if (!request) throw ApiError.notFound("Escrow funding request not found.");
+    if (request.status !== "PENDING") {
+      throw ApiError.badRequest(`Cannot resolve an escrow funding request in status ${request.status} — expected PENDING.`);
+    }
+
+    const project = await projectsRepo.findByIdForUpdate(client, request.project_id);
+    if (!project) throw ApiError.notFound("Project not found.");
+    if (project.status !== "PENDING_FUNDS") {
+      throw ApiError.badRequest(`Cannot resolve — project is in status ${project.status}, expected PENDING_FUNDS.`);
+    }
+
+    const updatedRequest = await escrowFundingRepo.markResolved(client, id, {
+      status: approved ? "APPROVED" : "REJECTED",
+      adminNote: note,
+      resolvedBy: req.user.id,
+    });
+
+    const updatedProject = await projectsRepo.updateStatus(
+      request.project_id,
+      approved ? "FUNDS_SECURED" : "ACCEPTED",
+      client
+    );
+
+    let txn = null;
+    if (approved) {
+      txn = await transactionsRepo.insert(
+        {
+          projectId: request.project_id,
+          workerId: project.worker_id,
+          businessId: project.business_id,
+          type: "FUNDS_SECURED",
+          direction: "debit",
+          amount: Number(request.amount),
+          fundsStatus: "HELD",
+          referenceNote: `Funds secured (verified transfer, UTR ${request.utr_reference}) – ${project.title}`,
+        },
+        client
+      );
+
+      await adminRepo.insertPlatformLog(client, {
+        adminId: req.user.id,
+        action: "ESCROW_FUNDING_APPROVED",
+        targetProjectId: request.project_id,
+        notes: `Verified ${formatAmount(request.amount)} transfer (UTR: ${request.utr_reference}) for "${project.title}"`,
+      });
+    } else {
+      await adminRepo.insertPlatformLog(client, {
+        adminId: req.user.id,
+        action: "ESCROW_FUNDING_REJECTED",
+        targetProjectId: request.project_id,
+        notes: note || `Could not verify transfer (UTR: ${request.utr_reference}) for "${project.title}"`,
+      });
+    }
+
+    return { request: updatedRequest, project: updatedProject, transaction: txn };
+  });
+
+  emitProjectEvent(result.project, "STATUS_CHANGED", {
+    status: result.project.status,
+    actorRole: "admin",
+  });
+
+  res.json({ data: result });
+});
 
 // ─── Security Monitor ─────────────────────────────────────────────────────────
 // Reviews blocked_message_attempts (messages.controller.js writes one every

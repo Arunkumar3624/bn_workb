@@ -10,11 +10,11 @@ import {
   cancelAndRefund,
   completeProject,
   createProject,
+  fundEscrow,
   getProject,
   listOpenProjects,
   listProjects,
   requestRelease,
-  secureFunds,
   updateProjectStatus,
 } from "../controllers/projects.controller.js";
 import { createSubmission, listSubmissions } from "../controllers/submissions.controller.js";
@@ -49,7 +49,7 @@ projectsRouter.get("/:id/candidates", listCandidatesForProject);
 // atomically). Keeping them distinct endpoints makes that contract visible
 // in the route table, not buried in an if-branch inside the generic PATCH
 // handler.
-projectsRouter.post("/:id/secure-funds", requireRole("business"), secureFunds);
+projectsRouter.post("/:id/fund-escrow", requireRole("business"), fundEscrow);
 // The business only ever *requests* a release now — the actual payout
 // (completeProject) requires WorkBridge staff to act on it from the Admin
 // Panel's Fund Releases tab, so this route is admin-only, not business.

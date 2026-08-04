@@ -2,17 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { canTransition, nextStatus, PROJECT_STATUS_FLOW } from "../src/domain/projectStatus.js";
 
-// The real FSM: INVITED -> ACCEPTED -> FUNDS_SECURED -> WORK_IN_PROGRESS ->
-// FILES_SUBMITTED -> PENDING_RELEASE -> COMPLETED. Note this is the actual
-// enum used across the codebase (schema.sql's project_status) — not the
-// generic PENDING/ACTIVE/SUBMITTED naming from the task brief, which
-// doesn't match this system. PENDING_RELEASE is the human-in-the-loop step:
-// a business's "Approve & Release" only requests a release (requestRelease
-// in projects.controller.js); only WorkBridge staff (admin) can move
-// PENDING_RELEASE -> COMPLETED, via completeProject's atomic endpoint.
+// The real FSM: INVITED -> ACCEPTED -> PENDING_FUNDS -> FUNDS_SECURED ->
+// WORK_IN_PROGRESS -> FILES_SUBMITTED -> PENDING_RELEASE -> COMPLETED. Note
+// this is the actual enum used across the codebase (schema.sql's
+// project_status) — not the generic PENDING/ACTIVE/SUBMITTED naming from
+// the task brief, which doesn't match this system. PENDING_FUNDS and
+// PENDING_RELEASE are both human-in-the-loop steps: a business's "Fund
+// Escrow"/"Approve & Release" only *requests* the next state (fundEscrow/
+// requestRelease in projects.controller.js); only WorkBridge staff (admin)
+// can grant PENDING_FUNDS -> FUNDS_SECURED (resolveEscrowFunding) or
+// PENDING_RELEASE -> COMPLETED (completeProject), each via its own atomic
+// endpoint.
 test("nextStatus walks the flow forward, one step at a time", () => {
   assert.equal(nextStatus("INVITED"), "ACCEPTED");
-  assert.equal(nextStatus("ACCEPTED"), "FUNDS_SECURED");
+  assert.equal(nextStatus("ACCEPTED"), "PENDING_FUNDS");
+  assert.equal(nextStatus("PENDING_FUNDS"), "FUNDS_SECURED");
   assert.equal(nextStatus("FUNDS_SECURED"), "WORK_IN_PROGRESS");
   assert.equal(nextStatus("WORK_IN_PROGRESS"), "FILES_SUBMITTED");
   assert.equal(nextStatus("FILES_SUBMITTED"), "PENDING_RELEASE");
@@ -48,6 +52,11 @@ test("canTransition never allows COMPLETED via a plain transition — only /comp
 
 test("canTransition never allows PENDING_RELEASE via a plain transition — only requestRelease's atomic endpoint reaches it", () => {
   assert.equal(canTransition({ fromStatus: "FILES_SUBMITTED", toStatus: "PENDING_RELEASE", actorRole: "business" }), false);
+});
+
+test("canTransition never allows PENDING_FUNDS/FUNDS_SECURED via a plain transition — only fundEscrow/resolveEscrowFunding's atomic endpoints reach them", () => {
+  assert.equal(canTransition({ fromStatus: "ACCEPTED", toStatus: "PENDING_FUNDS", actorRole: "business" }), false);
+  assert.equal(canTransition({ fromStatus: "PENDING_FUNDS", toStatus: "FUNDS_SECURED", actorRole: "admin" }), false);
 });
 
 test("canTransition allows the one backward step — business requesting a revision", () => {
