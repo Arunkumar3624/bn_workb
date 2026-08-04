@@ -93,7 +93,14 @@ export async function list({ businessId, workerId, status, page, pageSize, viewe
 // The public Job Board feed — every OPEN, unassigned post, newest first.
 // Any authenticated worker may browse this (no ownership filter, unlike
 // list() above) — see job_candidates.controller.js's listOpenProjects.
-export async function listOpen() {
+// viewerLevel is the requesting worker's real current_level (passed by
+// listOpenProjects) — Urgent Matching's real effect: urgent posts sort
+// first for everyone, but only Silver-tier+ workers (the real threshold
+// from gamification_config, not a hardcoded guess) see one immediately;
+// everyone else sees it once it's been public for 3 hours. No subscription
+// check here — that track is deferred, so "top worker" is decided purely
+// by the real, already-existing tier system.
+export async function listOpen(viewerLevel = 0) {
   const { rows } = await query(
     `SELECT p.*, COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
             b.rating AS business_rating,
@@ -103,8 +110,14 @@ export async function listOpen() {
      FROM projects p
      JOIN public_user_profiles b ON b.id = p.business_id
      WHERE p.status = 'OPEN'
-     ORDER BY p.created_at DESC
-     LIMIT 100`
+       AND (
+         p.is_urgent = false
+         OR $1 >= (SELECT level_threshold FROM gamification_config WHERE tier_name = 'Silver')
+         OR p.created_at <= now() - interval '3 hours'
+       )
+     ORDER BY p.is_urgent DESC, p.created_at DESC
+     LIMIT 100`,
+    [viewerLevel]
   );
   return rows;
 }
@@ -128,14 +141,15 @@ export async function create({
   educationLevel,
   educationNotes,
   requiredSkills,
+  isUrgent,
 }) {
   const resolvedStatus = status ?? (workerId ? "INVITED" : "OPEN");
   const { rows } = await query(
     `INSERT INTO projects (
        business_id, worker_id, title, description, budget, deadline, status, application_deadline, estimated_duration,
-       min_experience_years, max_experience_years, education_level, education_notes, required_skills
+       min_experience_years, max_experience_years, education_level, education_notes, required_skills, is_urgent
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7::project_status, $8, $9, $10, $11, $12::education_level, $13, $14)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::project_status, $8, $9, $10, $11, $12::education_level, $13, $14, $15)
      RETURNING *`,
     [
       businessId,
@@ -152,6 +166,7 @@ export async function create({
       educationLevel ?? "ANY",
       educationNotes ?? null,
       requiredSkills ?? [],
+      isUrgent ?? false,
     ]
   );
   return rows[0];

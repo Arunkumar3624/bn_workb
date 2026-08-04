@@ -213,6 +213,11 @@ CREATE TABLE projects (
   education_level      education_level NOT NULL DEFAULT 'ANY',
   education_notes      TEXT,
   required_skills      TEXT[] NOT NULL DEFAULT '{}',
+  -- Real effect (no subscription gating — deferred): urgent posts sort
+  -- first on the Job Board and are visible to Silver-tier+ workers
+  -- immediately, with a short public delay for everyone else. See
+  -- migrations/019_urgent_matching.sql.
+  is_urgent         BOOLEAN NOT NULL DEFAULT false,
   -- Append-only FSM history, e.g. [{"status": "FUNDS_SECURED", "at": "..."}].
   -- A normalized project_timeline_events table (project_id, status,
   -- occurred_at) would be the more correct audit-trail design — recommended
@@ -230,6 +235,7 @@ CREATE TABLE projects (
 CREATE INDEX idx_projects_business_id ON projects (business_id);
 CREATE INDEX idx_projects_worker_id   ON projects (worker_id);
 CREATE INDEX idx_projects_status      ON projects (status);
+CREATE INDEX idx_projects_is_urgent   ON projects (is_urgent) WHERE is_urgent = true;
 
 CREATE TRIGGER trg_projects_updated_at
   BEFORE UPDATE ON projects
@@ -486,6 +492,39 @@ CREATE TABLE user_blocks (
 
 CREATE INDEX idx_user_blocks_blocker ON user_blocks (blocker_id);
 CREATE INDEX idx_user_blocks_blocked ON user_blocks (blocked_id);
+
+-- ─── 7c. support_threads / support_messages ─────────────────────────────────
+-- Real-time Customer Care — one continuous support conversation per user
+-- with WorkBridge staff, separate from project chat since it isn't scoped
+-- to any one project. See migrations/020_support_threads.sql.
+
+CREATE TYPE support_status AS ENUM ('OPEN', 'RESOLVED');
+
+CREATE TABLE support_threads (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  status      support_status NOT NULL DEFAULT 'OPEN',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT uq_support_threads_user UNIQUE (user_id)
+);
+
+CREATE TABLE support_messages (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  thread_id    UUID NOT NULL REFERENCES support_threads(id) ON DELETE CASCADE,
+  sender_id    UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  sender_role  user_role NOT NULL,
+  body         TEXT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_support_messages_thread_id ON support_messages (thread_id, created_at);
+CREATE INDEX idx_support_threads_status ON support_threads (status, updated_at DESC);
+
+CREATE TRIGGER trg_support_threads_updated_at
+  BEFORE UPDATE ON support_threads
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ─── 8. job_candidates ──────────────────────────────────────────────────────
 -- The Open Job Board — a project can start life unassigned (worker_id

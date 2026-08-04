@@ -13,6 +13,13 @@ export function projectRoom(projectId) {
   return `project:${projectId}`;
 }
 
+// Every connected admin joins this on connect (below) — Customer Care needs
+// to reach "whichever staff are online right now," not one specific user,
+// which userRoom alone can't express.
+export function adminRoom() {
+  return "admins";
+}
+
 // The realtime counterpart of guard.js — same JWT, same secret, same
 // payload contract. A socket that fails this never finishes connecting
 // (no bare-authenticated-by-default connection).
@@ -51,6 +58,7 @@ export function initSocket(httpServer) {
 
   io.on("connection", (socket) => {
     socket.join(userRoom(socket.user.id));
+    if (socket.user.role === "admin") socket.join(adminRoom());
 
     socket.on("project:join", (projectId, ack) => {
       handleProjectJoin(socket, projectId, ack).catch(() => ack?.({ ok: false, error: "Server error" }));

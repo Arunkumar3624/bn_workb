@@ -1,4 +1,4 @@
-import { getIO, userRoom, projectRoom } from "./socket.js";
+import { getIO, userRoom, projectRoom, adminRoom } from "./socket.js";
 
 // One event name, discriminated by `type`, so the frontend only ever needs
 // one listener per surface — future events (e.g. a chat message, once that
@@ -29,4 +29,19 @@ export function emitToUser(userId, type, payload = {}) {
   if (!io) return;
 
   io.to(userRoom(userId)).emit("project:event", { type, ...payload });
+}
+
+// Customer Care — a new message on a support thread reaches the thread's
+// owner (their other open tabs) and every currently-connected admin at
+// once, so a staff member watching the inbox sees it land live without a
+// manual refresh. Reuses the same "project:event" channel/shape as
+// everything else real-time in this app, just with SUPPORT_MESSAGE_CREATED
+// as the type.
+export function emitSupportMessage(thread, payload = {}) {
+  const io = getIO();
+  if (!io) return;
+
+  const event = { type: "SUPPORT_MESSAGE_CREATED", threadId: thread.id, ...payload };
+  io.to(userRoom(thread.user_id)).emit("project:event", event);
+  io.to(adminRoom()).emit("project:event", event);
 }

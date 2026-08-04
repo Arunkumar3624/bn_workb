@@ -55,3 +55,13 @@ export const listReviews = asyncHandler(async (req, res) => {
   const reviews = await reviewsRepo.listForReviewee(req.query.revieweeId);
   res.json({ data: reviews });
 });
+
+// GET /api/reviews/featured — the public Testimonials page: a handful of
+// real, substantive reviews platform-wide (not scoped to one reviewee),
+// plus real aggregate stats. Both are genuine DB facts — however small the
+// platform's real numbers are today, they're never backfilled with
+// invented ones.
+export const listFeaturedReviews = asyncHandler(async (_req, res) => {
+  const [reviews, stats] = await Promise.all([reviewsRepo.listFeatured(), reviewsRepo.getPublicStats()]);
+  res.json({ data: { reviews, stats } });
+});

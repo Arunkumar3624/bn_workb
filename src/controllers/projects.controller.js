@@ -60,9 +60,12 @@ export const getProject = asyncHandler(async (req, res) => {
 
 // GET /api/projects/open — the Job Board feed. Any authenticated worker can
 // browse every OPEN, unassigned post — unlike listProjects above, this is
-// deliberately NOT scoped to "projects I participate in."
-export const listOpenProjects = asyncHandler(async (_req, res) => {
-  const projects = await projectsRepo.listOpen();
+// deliberately NOT scoped to "projects I participate in." The viewer's real
+// current_level is looked up here (req.user off the JWT only carries
+// {id, role}) so listOpen can decide real Urgent Matching visibility.
+export const listOpenProjects = asyncHandler(async (req, res) => {
+  const viewer = await usersRepo.findById(req.user.id);
+  const projects = await projectsRepo.listOpen(viewer?.current_level ?? 0);
   res.json({ data: projects });
 });
 
@@ -101,6 +104,7 @@ export const createProject = asyncHandler(async (req, res) => {
     educationLevel: req.body.educationLevel,
     educationNotes: req.body.educationNotes,
     requiredSkills: req.body.requiredSkills,
+    isUrgent: req.body.isUrgent,
   });
 
   // The worker has never seen this project before now, so they can't have

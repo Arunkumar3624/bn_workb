@@ -36,3 +36,45 @@ export async function listForReviewee(revieweeId) {
   );
   return rows;
 }
+
+// Platform-wide highlights for the public Testimonials page — same public
+// trust-signal category as listForReviewee above, just not scoped to one
+// reviewee. Filtered to reviews with substantive feedback text (real
+// quotes from real completed projects) so the many blank/placeholder
+// reviews don't drown them out — every row returned is a real review,
+// nothing here is invented.
+export async function listFeatured(limit = 12) {
+  const { rows } = await query(
+    `SELECT r.id, r.rating, r.feedback, r.created_at,
+            reviewer.name AS reviewer_name, reviewer.role AS reviewer_role,
+            reviewee.name AS reviewee_name, reviewee.role AS reviewee_role, reviewee.title AS reviewee_title,
+            p.title AS project_title
+     FROM reviews r
+     JOIN public_user_profiles reviewer ON reviewer.id = r.reviewer_id
+     JOIN public_user_profiles reviewee ON reviewee.id = r.reviewee_id
+     JOIN projects p ON p.id = r.project_id
+     WHERE length(trim(r.feedback)) >= 30
+     ORDER BY r.rating DESC, r.created_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return rows;
+}
+
+// Real, live platform totals for the same page — the small public-safe
+// subset of the numbers AdminOverviewTab's KPIs already use (no revenue or
+// other internal financial figures).
+export async function getPublicStats() {
+  const [{ rows: completed }, { rows: workers }, { rows: businesses }, { rows: avgRating }] = await Promise.all([
+    query(`SELECT count(*)::int AS count FROM projects WHERE status = 'COMPLETED'`),
+    query(`SELECT count(*)::int AS count FROM users WHERE role = 'worker'`),
+    query(`SELECT count(*)::int AS count FROM users WHERE role = 'business'`),
+    query(`SELECT COALESCE(round(avg(rating)::numeric, 1), 0) AS avg FROM reviews`),
+  ]);
+  return {
+    completedProjects: completed[0].count,
+    totalWorkers: workers[0].count,
+    totalBusinesses: businesses[0].count,
+    averageRating: Number(avgRating[0].avg),
+  };
+}

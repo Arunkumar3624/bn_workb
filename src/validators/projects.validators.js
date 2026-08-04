@@ -57,6 +57,10 @@ export const createProjectSchema = z.object({
     )
     .max(20)
     .optional(),
+  // Real effect now (see migrations/019_urgent_matching.sql) — urgent posts
+  // sort first and get early visibility to Silver-tier+ workers. No
+  // subscription gating here; that track is deferred.
+  isUrgent: z.boolean().optional(),
 }).refine(
   (data) => data.maxExperienceYears === undefined || data.minExperienceYears === undefined || data.maxExperienceYears >= data.minExperienceYears,
   { message: "Max experience must be greater than or equal to min experience.", path: ["maxExperienceYears"] }
