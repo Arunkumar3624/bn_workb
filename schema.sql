@@ -624,6 +624,23 @@ CREATE TABLE ledger_events (
 
 CREATE INDEX idx_ledger_events_user_id_created_at ON ledger_events (user_id, created_at DESC);
 
+-- migrations/021_perk_purchases.sql — turns Business Perks Shop / Worker
+-- Token Shop "Purchase" into a real, Ledger-backed spend (see
+-- perks.controller.js). One row per redemption, with a resolved expiry for
+-- time-boxed tiers; null expires_at is a one-time/no-window perk.
+CREATE TABLE perk_purchases (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  perk_id     TEXT NOT NULL,
+  tier_id     TEXT NOT NULL,
+  label       TEXT NOT NULL,
+  token_cost  INTEGER NOT NULL CHECK (token_cost > 0),
+  expires_at  TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_perk_purchases_user_id_created_at ON perk_purchases (user_id, created_at DESC);
+
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --
 -- 1. wallet_balance is a cache, transactions is the ledger of record.
