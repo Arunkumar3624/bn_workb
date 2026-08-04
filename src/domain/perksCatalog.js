@@ -29,6 +29,22 @@ export const PERKS_CATALOG = {
       name: "Enterprise Broadcast",
       tiers: [{ id: "one-time", label: "One-Time Broadcast", cost: 120, durationHours: null }],
     },
+    // Both new — deliberately service/visibility perks, not anything that
+    // touches worker ranking. "Nobody can buy their way past better talent"
+    // (BusinessWorkers.jsx's own ranking comment) applies here too.
+    {
+      id: "dispute-fast-track",
+      name: "Dispute Fast-Track",
+      tiers: [{ id: "single-dispute", label: "One Active Dispute", cost: 60, durationHours: null }],
+    },
+    {
+      id: "featured-employer",
+      name: "Featured Employer Spotlight",
+      tiers: [
+        { id: "3d-spotlight", label: "3-Day Spotlight", cost: 50, durationHours: 72 },
+        { id: "7d-spotlight", label: "7-Day Spotlight", cost: 90, durationHours: 168 },
+      ],
+    },
   ],
   worker: [
     {
