@@ -13,7 +13,7 @@ export const getLedger = asyncHandler(async (req, res) => {
   const user = await usersRepo.findById(req.user.id);
   const events = await ledgerEventsRepo.listForUser(req.user.id);
 
-  const { currentLevel } = calculateLevel(user.xp);
+  const { currentLevel, xpForCurrentLevel, xpForNextLevel } = calculateLevel(user.xp);
   const { tier } = getTierData(currentLevel);
 
   res.json({
@@ -23,6 +23,13 @@ export const getLedger = asyncHandler(async (req, res) => {
       tier,
       bridgeTokens: user.bridge_tokens,
       progressPct: calculateProgressBar(user.xp),
+      // The two thresholds calculateProgressBar's own percentage is derived
+      // from — exposed so a UI (WorkerLevelRing.jsx) can show "X / Y XP to
+      // next level" that numerically matches the ring's fill, instead of
+      // re-deriving the curve itself or showing raw total xp (which would
+      // NOT match progressPct once a worker is past Level 1).
+      xpForCurrentLevel,
+      xpForNextLevel,
       events,
     },
   });
