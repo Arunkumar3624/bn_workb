@@ -223,6 +223,10 @@ CREATE TABLE projects (
   -- immediately, with a short public delay for everyone else. See
   -- migrations/019_urgent_matching.sql.
   is_urgent         BOOLEAN NOT NULL DEFAULT false,
+  -- Set once the "deadline in 1 day" push reminder actually fires (see
+  -- services/deadlineReminders.js) so the periodic scheduler doesn't
+  -- re-notify the same project every time it runs.
+  deadline_reminder_sent_at TIMESTAMPTZ,
   -- Append-only FSM history, e.g. [{"status": "FUNDS_SECURED", "at": "..."}].
   -- A normalized project_timeline_events table (project_id, status,
   -- occurred_at) would be the more correct audit-trail design — recommended
@@ -692,6 +696,19 @@ CREATE TABLE escrow_funding_requests (
 
 CREATE INDEX idx_escrow_funding_requests_status  ON escrow_funding_requests (status, created_at);
 CREATE INDEX idx_escrow_funding_requests_project ON escrow_funding_requests (project_id);
+
+-- One row per browser/device a user has granted Notification permission
+-- and subscribed to push on (see push.service.js / routes/push.routes.js).
+CREATE TABLE push_subscriptions (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint    TEXT NOT NULL UNIQUE,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions (user_id);
 
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --

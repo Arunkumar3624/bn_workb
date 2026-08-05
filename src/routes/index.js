@@ -10,6 +10,7 @@ import { gamificationRouter } from "./gamification.routes.js";
 import { blocksRouter } from "./blocks.routes.js";
 import { supportRouter } from "./support.routes.js";
 import { perksRouter } from "./perks.routes.js";
+import { pushRouter } from "./push.routes.js";
 
 export const apiRouter = Router();
 
@@ -24,6 +25,7 @@ apiRouter.use("/gamification", gamificationRouter);
 apiRouter.use("/blocks", blocksRouter);
 apiRouter.use("/support", supportRouter);
 apiRouter.use("/perks", perksRouter);
+apiRouter.use("/push", pushRouter);
 
 // Dev-only token issuance — never mounted in production. See dev.routes.js.
 if (process.env.NODE_ENV !== "production") {

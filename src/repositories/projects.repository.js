@@ -27,6 +27,31 @@ export async function findByIdJoined(id) {
   return rows[0] ?? null;
 }
 
+// Deadline is DATE (day granularity, no time-of-day) — "1 day out" means
+// deadline = tomorrow exactly, not a rolling 24h window. Only still-active,
+// pre-delivery statuses are worth reminding about; a project already
+// FILES_SUBMITTED or beyond has nothing left to be "on time" for, and
+// CANCELLED/DISPUTED/COMPLETED obviously don't need one either. Filters out
+// anything already reminded via deadline_reminder_sent_at so the periodic
+// scheduler (services/deadlineReminders.js) never re-notifies the same
+// project on its next tick.
+const DEADLINE_REMINDER_STATUSES = ["ACCEPTED", "PENDING_FUNDS", "FUNDS_SECURED", "WORK_IN_PROGRESS"];
+
+export async function listDueForDeadlineReminder() {
+  const { rows } = await query(
+    `SELECT * FROM projects
+     WHERE deadline = (CURRENT_DATE + INTERVAL '1 day')::date
+       AND status = ANY($1)
+       AND deadline_reminder_sent_at IS NULL`,
+    [DEADLINE_REMINDER_STATUSES]
+  );
+  return rows;
+}
+
+export async function markDeadlineReminderSent(id) {
+  await query(`UPDATE projects SET deadline_reminder_sent_at = now() WHERE id = $1`, [id]);
+}
+
 export async function findByIdForUpdate(client, id) {
   // FOR UPDATE row-locks this project row for the duration of the
   // transaction, so a second concurrent "complete" call on the same

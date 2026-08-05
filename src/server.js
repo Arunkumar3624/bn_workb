@@ -3,6 +3,7 @@ import dns from "node:dns";
 import http from "node:http";
 import { app } from "./app.js";
 import { initSocket } from "./realtime/socket.js";
+import { startDeadlineReminderScheduler } from "./services/deadlineReminders.js";
 
 // Some hosts (Render's containers among them) can resolve a hostname's IPv6
 // address via DNS but can't actually route to it, failing with ENETUNREACH —
@@ -22,4 +23,5 @@ initSocket(server);
 
 server.listen(port, () => {
   console.log(`WorkBridge API listening on :${port}`);
+  startDeadlineReminderScheduler();
 });

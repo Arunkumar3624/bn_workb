@@ -1,20 +1,98 @@
 import { getIO, userRoom, projectRoom, adminRoom } from "./socket.js";
+import { sendPushToUser } from "../services/push.service.js";
+import * as usersRepo from "../repositories/users.repository.js";
 
-// One event name, discriminated by `type`, so the frontend only ever needs
-// one listener per surface — future events (e.g. a chat message, once that
-// feature exists) extend the `type` union instead of adding new channels.
+// Real device push (Notification/Push API — see push.service.js) reaches a
+// user whether or not they're actively connected via socket right now,
+// which is the whole point of it — so every push send below happens
+// unconditionally, never gated behind `if (!io) return` the way the socket
+// emits are. It's always fire-and-forget from the caller's perspective: a
+// chat message send, a status change, etc. must succeed regardless of
+// whether push is configured or a delivery fails (see sendPushToUser's own
+// try/catch per subscription).
+function firePush(userId, copy) {
+  if (!copy) return;
+  sendPushToUser(userId, copy).catch((err) => console.error("[push] sendPushToUser threw:", err));
+}
+
+const WORKER_JOB_FEED_URL = "/worker";
+const BUSINESS_DASHBOARD_URL = "/business";
+
+function workerNegotiationUrl(projectId) {
+  return projectId ? `/worker/negotiations?invite=${projectId}` : "/worker/negotiations";
+}
+
+// project_status values -> readable copy, kept local rather than importing
+// the frontend's PROJECT_STATUS_META (that file also carries UI-only tone/
+// icon data this doesn't need, and the backend shouldn't depend on
+// Frontend/ at all).
+const STATUS_LABELS = {
+  INVITED: "awaiting your response",
+  ACCEPTED: "accepted",
+  PENDING_FUNDS: "pending funds verification",
+  FUNDS_SECURED: "funded — work can begin",
+  WORK_IN_PROGRESS: "in progress",
+  FILES_SUBMITTED: "submitted for review",
+  PENDING_RELEASE: "pending fund release",
+  COMPLETED: "completed",
+  CANCELLED: "cancelled",
+  DISPUTED: "disputed",
+};
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] ?? status.replaceAll("_", " ").toLowerCase();
+}
+
+// The push copy for every emitProjectEvent/emitToUser type this app fires.
+// role is the recipient's role relative to the project ("worker" |
+// "business"), used only to pick a sensible click-through url — title/body
+// stay the same for both sides, since the event itself already reads
+// naturally regardless of which side you're on ("New message on X").
+// Returns null for a type with nothing user-facing worth a push (none
+// currently, but keeps this safe if one's ever added without updating here).
+function buildProjectPushCopy(type, payload, project, role) {
+  const title = project?.title ?? "your project";
+  const url = role === "worker" ? workerNegotiationUrl(project?.id) : BUSINESS_DASHBOARD_URL;
+
+  switch (type) {
+    case "PROJECT_CREATED":
+      return { title: "New project invite", body: `You've been invited to "${title}".`, url };
+    case "MESSAGE_CREATED":
+      return { title: "New message", body: `New message on "${title}".`, url };
+    case "STATUS_CHANGED":
+      return { title: "Project update", body: `"${title}" is now ${statusLabel(payload.status)}.`, url };
+    case "CANDIDATE_ACCEPTED":
+      return { title: "Project assigned", body: `"${title}" now has a worker assigned.`, url };
+    case "SUBMISSION_CREATED":
+      return { title: "Work submitted", body: `New submission on "${title}".`, url };
+    case "SUBMISSION_REVIEWED":
+      return { title: "Submission reviewed", body: `Your submission on "${title}" was reviewed.`, url };
+    case "COMPLETED":
+      return { title: "Project completed", body: `"${title}" has been marked complete.`, url };
+    case "REVIEW_SUBMITTED":
+      return { title: "New review", body: `You received a review on "${title}".`, url };
+    default:
+      return null;
+  }
+}
+
 // Emitted to both participants' private rooms (so a toast lands regardless
 // of which page they're on) and the project room (for anyone actively
-// viewing that project). No-ops if the socket server hasn't been started
-// (e.g. under a script/test that never calls initSocket).
+// viewing that project). Socket emit no-ops if the socket server hasn't
+// been started (e.g. under a script/test that never calls initSocket) —
+// push still fires either way, see firePush above.
 export function emitProjectEvent(project, type, payload = {}) {
   const io = getIO();
-  if (!io) return;
-
   const event = { type, projectId: project.id, ...payload };
-  if (project.worker_id) io.to(userRoom(project.worker_id)).emit("project:event", event);
-  io.to(userRoom(project.business_id)).emit("project:event", event);
-  io.to(projectRoom(project.id)).emit("project:event", event);
+
+  if (io) {
+    if (project.worker_id) io.to(userRoom(project.worker_id)).emit("project:event", event);
+    io.to(userRoom(project.business_id)).emit("project:event", event);
+    io.to(projectRoom(project.id)).emit("project:event", event);
+  }
+
+  if (project.worker_id) firePush(project.worker_id, buildProjectPushCopy(type, payload, project, "worker"));
+  firePush(project.business_id, buildProjectPushCopy(type, payload, project, "business"));
 }
 
 // The job board's candidate events (a new invite, "this job was filled by
@@ -23,12 +101,40 @@ export function emitProjectEvent(project, type, payload = {}) {
 // emitProjectEvent above can't reach an invited/applying worker at all.
 // Same "user:<id>" room every socket already auto-joins on connect (see
 // realtime/socket.js), just addressed directly instead of derived from a
-// project row.
+// project row. Push has to look the recipient's role up (this call site
+// only ever gets a bare userId, not a project row with both sides on it) —
+// one extra indexed lookup, worth it to pick the right click-through url.
 export function emitToUser(userId, type, payload = {}) {
   const io = getIO();
-  if (!io) return;
+  if (io) io.to(userRoom(userId)).emit("project:event", { type, ...payload });
 
-  io.to(userRoom(userId)).emit("project:event", { type, ...payload });
+  const projectTitle = payload.projectTitle ?? "a job post";
+  let copy;
+  switch (type) {
+    case "CANDIDATE_CREATED":
+      copy =
+        payload.source === "INVITE"
+          ? { title: "You've been invited", body: `You've been invited to apply to "${projectTitle}".` }
+          : { title: "New application", body: `Someone applied to "${projectTitle}".` };
+      break;
+    case "CANDIDATE_DECLINED":
+      copy = { title: "Candidacy update", body: `There's an update on "${projectTitle}".` };
+      break;
+    case "JOB_FILLED":
+      copy = { title: "Job filled", body: `"${projectTitle}" was filled by another candidate.` };
+      break;
+    default:
+      copy = null;
+  }
+  if (!copy) return;
+
+  usersRepo
+    .findById(userId)
+    .then((user) => {
+      const url = user?.role === "business" ? BUSINESS_DASHBOARD_URL : WORKER_JOB_FEED_URL;
+      firePush(userId, { ...copy, url });
+    })
+    .catch((err) => console.error("[push] Could not resolve recipient role:", err));
 }
 
 // Customer Care — a new message on a support thread reaches the thread's
@@ -36,12 +142,16 @@ export function emitToUser(userId, type, payload = {}) {
 // once, so a staff member watching the inbox sees it land live without a
 // manual refresh. Reuses the same "project:event" channel/shape as
 // everything else real-time in this app, just with SUPPORT_MESSAGE_CREATED
-// as the type.
+// as the type. Push only goes to the thread owner — admins work from the
+// live Support tab, not a device notification.
 export function emitSupportMessage(thread, payload = {}) {
   const io = getIO();
-  if (!io) return;
-
   const event = { type: "SUPPORT_MESSAGE_CREATED", threadId: thread.id, ...payload };
-  io.to(userRoom(thread.user_id)).emit("project:event", event);
-  io.to(adminRoom()).emit("project:event", event);
+
+  if (io) {
+    io.to(userRoom(thread.user_id)).emit("project:event", event);
+    io.to(adminRoom()).emit("project:event", event);
+  }
+
+  firePush(thread.user_id, { title: "Support reply", body: "You have a new message from WorkBridge Support.", url: "/" });
 }
