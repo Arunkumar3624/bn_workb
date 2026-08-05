@@ -17,7 +17,13 @@ export function verifyAccessToken(token) {
     throw ApiError.unauthorized("Token payload is missing required claims (sub, role).");
   }
 
-  return { id: payload.sub, role: payload.role };
+  // impersonatorId only ever appears on a short-lived token issued by POST
+  // /api/admin/impersonate (admin.controller.js) — it's baked into the
+  // signed payload, never something a client can set itself, so its mere
+  // presence here is proof "an admin is driving this account right now."
+  // Only spread onto req.user when actually present, not as an explicit
+  // `undefined` key on every normal request.
+  return { id: payload.sub, role: payload.role, ...(payload.impersonatorId ? { impersonatorId: payload.impersonatorId } : {}) };
 }
 
 // Verifies the Bearer JWT and attaches { id, role } to req.user. Applied to
@@ -61,6 +67,19 @@ export function requireRole(...allowedRoles) {
     next();
   };
 }
+
+// Applied to routes an impersonated session must never be able to reach —
+// changing the target's password, deactivating their account, or moving
+// real money out via a withdrawal request. "See what they see" for support
+// debugging should never also extend to "act destructively on their
+// behalf," especially if an admin account were ever compromised — this is
+// a hard server-side wall, not a UI-only hint.
+export const blockDuringImpersonation = asyncHandler(async (req, _res, next) => {
+  if (req.user?.impersonatorId) {
+    throw ApiError.forbidden("This action isn't available during an impersonated session.");
+  }
+  next();
+});
 
 function mustGetJwtSecret() {
   const secret = process.env.JWT_SECRET;

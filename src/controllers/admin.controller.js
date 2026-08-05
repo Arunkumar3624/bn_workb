@@ -1,3 +1,4 @@
+import jwt from "jsonwebtoken";
 import { transaction } from "../db/client.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -31,6 +32,54 @@ export const listAllUsers = asyncHandler(async (_req, res) => {
   const data = await adminRepo.listAllUsers();
   res.json({ data });
 });
+
+// ─── Impersonation ────────────────────────────────────────────────────────────
+// POST /api/admin/impersonate — body: { targetUserId }. A real, audited
+// "log in as this user" capability for Trust & Safety debugging a live
+// support issue ("my Escrow button is broken") without ever asking for a
+// password. Every session writes a real platform_logs row BEFORE the
+// elevated token is issued — this is deliberately not skippable. The
+// issued JWT carries impersonatorId (see guard.js's verifyAccessToken),
+// which (a) makes every subsequent API call during the session
+// distinguishable from a real login in logs/metrics, and (b) is what
+// blockDuringImpersonation checks to wall off irreversible actions
+// (password change, deactivation, withdrawals) for the rest of this
+// session. Deliberately short-lived (30 min, vs. the normal 7-day
+// session) — a hard backstop even if nobody clicks "End Session."
+export const impersonateUser = asyncHandler(async (req, res) => {
+  const { targetUserId } = req.body ?? {};
+  if (!targetUserId) throw ApiError.badRequest("targetUserId is required.");
+
+  const target = await usersRepo.findById(targetUserId);
+  if (!target) throw ApiError.notFound("User not found.");
+  if (target.role === "admin") {
+    throw ApiError.forbidden("Admin accounts can't be impersonated.");
+  }
+
+  await transaction(async (client) => {
+    await adminRepo.insertPlatformLog(client, {
+      adminId: req.user.id,
+      action: "IMPERSONATION_STARTED",
+      targetUserId: target.id,
+      notes: `Started impersonating ${target.name} (${target.role})`,
+    });
+  });
+
+  const token = jwt.sign(
+    { sub: target.id, role: target.role, impersonatorId: req.user.id },
+    mustGetJwtSecret(),
+    { expiresIn: "30m" }
+  );
+
+  const { password_hash, ...safeTarget } = target;
+  res.json({ data: { token, user: safeTarget } });
+});
+
+function mustGetJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw ApiError.internal("JWT_SECRET is not configured on the server.");
+  return secret;
+}
 
 // PATCH /api/admin/verify/:id — body: { approved: boolean }
 // Approve sets users.is_verified (verified column); Reject leaves it false

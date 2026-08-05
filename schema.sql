@@ -661,6 +661,12 @@ CREATE INDEX idx_perk_purchases_user_id_created_at ON perk_purchases (user_id, c
 ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'ESCROW_FUNDING_APPROVED';
 ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'ESCROW_FUNDING_REJECTED';
 
+-- migrations/023_impersonation_audit.sql — backs POST /api/admin/impersonate
+-- (admin.controller.js), an admin-only, audited "log in as this user"
+-- capability for support/debugging. Every session writes a real row here
+-- before the short-lived elevated JWT is ever issued.
+ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'IMPERSONATION_STARTED';
+
 CREATE TABLE escrow_funding_requests (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,

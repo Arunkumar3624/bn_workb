@@ -43,18 +43,31 @@ export async function listForReviewee(revieweeId) {
 // quotes from real completed projects) so the many blank/placeholder
 // reviews don't drown them out — every row returned is a real review,
 // nothing here is invented.
+//
+// DISTINCT ON (r.reviewer_id) caps this at ONE review per reviewer (their
+// best: highest-rated, then most recent) before the outer LIMIT — without
+// it, a small dataset where one account has completed many projects would
+// let that single reviewer fill the entire "Trusted by ambitious teams and
+// top talent" section, which reads as fake/repetitive even though every
+// row is real. This is a diversity constraint on real data, not
+// fabrication — reviewers with only one review still show up exactly as
+// before.
 export async function listFeatured(limit = 12) {
   const { rows } = await query(
-    `SELECT r.id, r.rating, r.feedback, r.created_at,
-            reviewer.name AS reviewer_name, reviewer.role AS reviewer_role,
-            reviewee.name AS reviewee_name, reviewee.role AS reviewee_role, reviewee.title AS reviewee_title,
-            p.title AS project_title
-     FROM reviews r
-     JOIN public_user_profiles reviewer ON reviewer.id = r.reviewer_id
-     JOIN public_user_profiles reviewee ON reviewee.id = r.reviewee_id
-     JOIN projects p ON p.id = r.project_id
-     WHERE length(trim(r.feedback)) >= 30
-     ORDER BY r.rating DESC, r.created_at DESC
+    `SELECT * FROM (
+       SELECT DISTINCT ON (r.reviewer_id)
+              r.id, r.rating, r.feedback, r.created_at,
+              reviewer.name AS reviewer_name, reviewer.role AS reviewer_role,
+              reviewee.name AS reviewee_name, reviewee.role AS reviewee_role, reviewee.title AS reviewee_title,
+              p.title AS project_title
+       FROM reviews r
+       JOIN public_user_profiles reviewer ON reviewer.id = r.reviewer_id
+       JOIN public_user_profiles reviewee ON reviewee.id = r.reviewee_id
+       JOIN projects p ON p.id = r.project_id
+       WHERE length(trim(r.feedback)) >= 30
+       ORDER BY r.reviewer_id, r.rating DESC, r.created_at DESC
+     ) distinct_reviewers
+     ORDER BY rating DESC, created_at DESC
      LIMIT $1`,
     [limit]
   );

@@ -14,6 +14,7 @@ import {
   resolveWithdrawal,
   listPendingEscrowFunding,
   resolveEscrowFunding,
+  impersonateUser,
   listBlockedAttempts,
   resolveBlockedAttempt,
   searchMessages,
@@ -37,6 +38,7 @@ adminRouter.get("/verify", listVerifications);
 adminRouter.patch("/verify/:id", verifyUser);
 
 adminRouter.get("/users", listAllUsers);
+adminRouter.post("/impersonate", impersonateUser);
 
 adminRouter.get("/stats", getPlatformStats);
 
