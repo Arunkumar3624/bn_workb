@@ -3,22 +3,36 @@ import * as pushSubscriptionsRepo from "../repositories/push_subscriptions.repos
 
 // Same "optional, silent no-op without config" convention as
 // email.service.js's requireEmailConfig — push is a real feature once
-// VAPID_* is set (see .env / Render env vars), but its absence should
-// never break the request that triggered the notification (a chat message
-// send, a project status change, etc. must still succeed either way).
+// VAPID_* is set (see .env / Render env vars), but its absence (or, as
+// happened once already, a malformed value — a trailing newline/space from
+// pasting into Render's env var UI is enough to fail web-push's base64url
+// check) should never break the request that triggered the notification, or
+// worse, crash the whole process at boot the way an unguarded
+// setVapidDetails() call did. .trim() defends against the common paste
+// artifact; the try/catch below is the actual hard guarantee.
 function requirePushConfig() {
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT;
+  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
+  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
+  const subject = process.env.VAPID_SUBJECT?.trim();
 
   if (!publicKey || !privateKey || !subject) return null;
   return { publicKey, privateKey, subject };
 }
 
-const config = requirePushConfig();
-if (config) {
-  webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey);
+function initVapid() {
+  const pushConfig = requirePushConfig();
+  if (!pushConfig) return null;
+
+  try {
+    webpush.setVapidDetails(pushConfig.subject, pushConfig.publicKey, pushConfig.privateKey);
+    return pushConfig;
+  } catch (err) {
+    console.error("[push] Invalid VAPID_* env vars — push notifications disabled:", err.message);
+    return null;
+  }
 }
+
+const config = initVapid();
 
 export function isPushConfigured() {
   return config !== null;
