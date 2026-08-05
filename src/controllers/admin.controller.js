@@ -12,6 +12,7 @@ import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repositor
 import * as withdrawalRequestsRepo from "../repositories/withdrawal_requests.repository.js";
 import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
+import { sendEscrowFundedSms } from "../services/sms.service.js";
 
 const PLATFORM_FEE_PCT_FALLBACK = 8;
 
@@ -416,6 +417,22 @@ export const resolveEscrowFunding = asyncHandler(async (req, res) => {
     status: result.project.status,
     actorRole: "admin",
   });
+
+  // High-value event #2 (see sms.service.js) — deliberately gated on
+  // `approved`, not on this endpoint being called at all: a rejected
+  // funding request means the money isn't actually secured, so the worker
+  // shouldn't be told it is. This fires here (real WorkBridge staff
+  // verification), never at the business's initial fundEscrow submission —
+  // that only reaches PENDING_FUNDS, unverified.
+  if (approved && result.project.worker_id) {
+    const worker = await usersRepo.findById(result.project.worker_id);
+    if (worker?.phone) {
+      sendEscrowFundedSms(worker.phone, {
+        project_title: result.project.title,
+        amount: Number(result.request.amount),
+      }).catch((err) => console.error("[sms] sendEscrowFundedSms threw:", err));
+    }
+  }
 
   res.json({ data: result });
 });

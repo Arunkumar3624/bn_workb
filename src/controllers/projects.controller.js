@@ -9,6 +9,7 @@ import * as ledgerEventsRepo from "../repositories/ledger_events.repository.js";
 import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 import { calculateLevel } from "../utils/gamification.js";
+import { sendHiredSms } from "../services/sms.service.js";
 
 // The first real token-earning trigger — MASTER_ECONOMY_PLAN.md's Ledger
 // Tokens (Bridge Tokens) had a column since migration 012 but nothing ever
@@ -117,6 +118,19 @@ export const createProject = asyncHandler(async (req, res) => {
     budget: Number(project.budget),
     businessName: joined.business_name,
   });
+
+  // High-value event #1 (see sms.service.js) — only the direct-invite path
+  // (workerId provided) has anyone to notify; an OPEN job board post has no
+  // worker yet. findByIdJoined's worker fields come from public_user_profiles,
+  // which excludes phone — a real lookup is needed for that.
+  if (joined.worker_id) {
+    const worker = await usersRepo.findById(joined.worker_id);
+    if (worker?.phone) {
+      sendHiredSms(worker.phone, { project_title: project.title, business_name: joined.business_name }).catch((err) =>
+        console.error("[sms] sendHiredSms threw:", err)
+      );
+    }
+  }
 
   res.status(201).json({ data: project });
 });

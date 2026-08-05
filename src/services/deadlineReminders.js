@@ -1,5 +1,7 @@
 import * as projectsRepo from "../repositories/projects.repository.js";
+import * as usersRepo from "../repositories/users.repository.js";
 import { sendPushToUser } from "./push.service.js";
+import { sendDeadlineSms } from "./sms.service.js";
 
 // Render runs this backend as a single, always-on Node process (not
 // serverless) — an in-process interval is a legitimate scheduler here, no
@@ -19,6 +21,17 @@ export async function checkAndSendDeadlineReminders() {
     const body = `"${project.title}" is due tomorrow.`;
     if (project.worker_id) {
       await sendPushToUser(project.worker_id, { title: "Deadline tomorrow", body, url: `/worker/negotiations?invite=${project.id}` });
+
+      // High-value event #3 (see sms.service.js) — push already reaches
+      // this worker if they've opted in; SMS is the one channel that still
+      // reaches them if they haven't, for something time-sensitive enough
+      // to be worth the per-message cost.
+      const worker = await usersRepo.findById(project.worker_id);
+      if (worker?.phone) {
+        await sendDeadlineSms(worker.phone, { project_title: project.title }).catch((err) =>
+          console.error("[sms] sendDeadlineSms threw:", err)
+        );
+      }
     }
     await sendPushToUser(project.business_id, { title: "Deadline tomorrow", body, url: "/business" });
 
