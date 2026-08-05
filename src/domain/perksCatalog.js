@@ -69,6 +69,20 @@ export const PERKS_CATALOG = {
       name: "Skill Bridge Profile Audit",
       tiers: [{ id: "one-time-review", label: "One-Time Review", cost: 50, durationHours: null }],
     },
+    // Both new — mirrors the business shop's own expansion (same ids reused
+    // there, since PERKS_CATALOG is scoped per role — no collision). Real
+    // existing admin queues (disputes, withdrawal_requests) as precedent,
+    // not anything that touches proposal ranking.
+    {
+      id: "dispute-fast-track",
+      name: "Dispute Fast-Track",
+      tiers: [{ id: "single-dispute", label: "One Active Dispute", cost: 40, durationHours: null }],
+    },
+    {
+      id: "withdrawal-fast-track",
+      name: "Withdrawal Fast-Track",
+      tiers: [{ id: "single-withdrawal", label: "One Pending Withdrawal", cost: 30, durationHours: null }],
+    },
   ],
 };
 
