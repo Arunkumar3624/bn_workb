@@ -127,6 +127,34 @@ export async function updatePassword(id, passwordHash) {
   return rows[0] ?? null;
 }
 
+// The Daily Streak Engine's only writer of current_streak/last_login_at.
+// One atomic UPDATE (no read-then-write, no transaction needed) so two
+// near-simultaneous logins for the same user can't race each other into an
+// inconsistent streak. Calendar-day comparison is done in UTC explicitly —
+// TIMESTAMPTZ::date alone would follow the DB session's timezone, which
+// isn't guaranteed consistent across connections/environments.
+// - No prior login (brand new user's first real login) -> streak starts at 1.
+// - Last login was exactly yesterday (UTC) -> streak continues, +1.
+// - Last login was already today (UTC) -> unchanged; logging in twice in
+//   one day isn't two days of engagement.
+// - Anything else (a gap of 2+ days, or a clock oddity) -> streak resets to 1.
+export async function recordLogin(id) {
+  const { rows } = await query(
+    `UPDATE users
+     SET current_streak = CASE
+           WHEN last_login_at IS NULL THEN 1
+           WHEN (last_login_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date THEN current_streak
+           WHEN (last_login_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date - INTERVAL '1 day' THEN current_streak + 1
+           ELSE 1
+         END,
+         last_login_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
 // Row-locks the wallet owner's user row so a concurrent withdrawal/payout
 // can't read a stale balance while this one is in flight.
 export async function findForUpdate(client, id) {

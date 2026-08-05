@@ -106,6 +106,10 @@ CREATE TABLE users (
   current_level     INTEGER NOT NULL DEFAULT 1,
   bridge_tokens     INTEGER NOT NULL DEFAULT 0,
   current_streak    INTEGER NOT NULL DEFAULT 0,
+  -- Set on every successful login (see users.repository.js's recordLogin);
+  -- compared against now() there to decide whether current_streak
+  -- increments, resets to 1, or holds steady on a same-day repeat login.
+  last_login_at     TIMESTAMPTZ,
   standing_door     standing_door_state NOT NULL DEFAULT 'hidden',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -552,13 +556,18 @@ CREATE TABLE job_candidates (
   message       TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  decided_at    TIMESTAMPTZ,
-
-  CONSTRAINT uq_job_candidate_project_worker UNIQUE (project_id, worker_id)
+  decided_at    TIMESTAMPTZ
 );
 
 CREATE INDEX idx_job_candidates_project_id ON job_candidates (project_id);
 CREATE INDEX idx_job_candidates_worker_id  ON job_candidates (worker_id);
+
+-- Only an outstanding PENDING candidacy blocks a duplicate — once a prior
+-- one is DECLINED or CLOSED, the same worker can be invited/apply again on
+-- a job post that's still open (see migrations/025_reinvite_after_decision.sql).
+CREATE UNIQUE INDEX uq_job_candidate_project_worker_pending
+  ON job_candidates (project_id, worker_id)
+  WHERE status = 'PENDING';
 CREATE INDEX idx_job_candidates_status     ON job_candidates (status);
 
 CREATE TRIGGER trg_job_candidates_updated_at

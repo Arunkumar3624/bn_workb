@@ -3,11 +3,13 @@ import { query } from "../db/client.js";
 // A worker applying to an OPEN post (source='APPLICATION') or a business
 // inviting a specific worker to one of their own OPEN posts
 // (source='INVITE') — see schema.sql's job_candidates comment for the full
-// lifecycle. uq_job_candidate_project_worker (one candidacy per worker per
-// project) turns a duplicate insert into a unique_violation (Postgres code
-// 23505) — the controller maps that to a 409 Conflict, same pattern
-// reviews.repository.js's create() already documents for its own unique
-// constraint.
+// lifecycle. uq_job_candidate_project_worker_pending (one *outstanding*
+// candidacy per worker per project — see migrations/025_reinvite_after_decision.sql)
+// turns a duplicate insert into a unique_violation (Postgres code 23505)
+// while a PENDING one already exists — the controller maps that to a 409
+// Conflict, same pattern reviews.repository.js's create() already documents
+// for its own unique constraint. Once that prior one is DECLINED or CLOSED,
+// this insert succeeds again — the same worker can be re-invited/re-apply.
 export async function create({ projectId, workerId, source, message }, client = { query }) {
   const { rows } = await client.query(
     `INSERT INTO job_candidates (project_id, worker_id, source, message)
@@ -71,6 +73,44 @@ export async function listForWorker(workerId) {
     [workerId]
   );
   return rows;
+}
+
+// BusinessWorkers.jsx's "Invited" badge — a worker with an outstanding
+// PENDING invite on one of this business's own OPEN posts should show as
+// already-invited *before* a second invite attempt hits the unique index
+// (uq_job_candidate_project_worker_pending) and 409s. Only source='INVITE'
+// counts here — a worker who applied on their own isn't someone "you
+// invited", so that shouldn't light up the same badge.
+export async function listPendingInvitedWorkerIdsForBusiness(businessId) {
+  const { rows } = await query(
+    `SELECT DISTINCT c.worker_id
+     FROM job_candidates c
+     JOIN projects p ON p.id = c.project_id
+     WHERE p.business_id = $1 AND c.source = 'INVITE' AND c.status = 'PENDING'`,
+    [businessId]
+  );
+  return rows.map((r) => r.worker_id);
+}
+
+// The Hustle Stats card's backend — how many jobs this worker has actually
+// applied to (source='APPLICATION' only; an INVITE was the business's move,
+// not the worker's own hustle) this week and this month. date_trunc bounds
+// are computed in the query itself (UTC, Postgres's default unless the
+// session overrides it) rather than passed in from the app, so "this
+// week"/"this month" can never drift from what "now" means to the DB.
+export async function countApplicationsByPeriod(workerId) {
+  const { rows } = await query(
+    `SELECT
+       COUNT(*) FILTER (WHERE created_at >= date_trunc('week', now())) AS this_week,
+       COUNT(*) FILTER (WHERE created_at >= date_trunc('month', now())) AS this_month
+     FROM job_candidates
+     WHERE worker_id = $1 AND source = 'APPLICATION'`,
+    [workerId]
+  );
+  return {
+    thisWeek: Number(rows[0].this_week),
+    thisMonth: Number(rows[0].this_month),
+  };
 }
 
 export async function updateStatus(client, id, status) {

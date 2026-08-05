@@ -186,7 +186,12 @@ export const verifyOtp = asyncHandler(async (req, res) => {
   }
 
   await authRepo.deletePendingSignup(email);
-  res.status(201).json({ data: { token: issueToken(user), user: toSelf(user) } });
+
+  // Starts the Daily Streak Engine at 1 from the very first session, rather
+  // than showing "0 Day Streak" until tomorrow's login — see
+  // users.repository.js's recordLogin.
+  const loggedInUser = await usersRepo.recordLogin(user.id);
+  res.status(201).json({ data: { token: issueToken(loggedInUser), user: toSelf(loggedInUser) } });
 });
 
 // POST /api/auth/login — public. body: { email, password }. Password only —
@@ -209,7 +214,11 @@ export const login = asyncHandler(async (req, res) => {
     throw ApiError.forbidden("This account has been suspended. Contact support if you believe this is a mistake.");
   }
 
-  res.json({ data: { token: issueToken(user), user: toSelf(user) } });
+  // The Daily Streak Engine's real trigger — every successful login
+  // compares against the previous one and updates current_streak/
+  // last_login_at atomically (see users.repository.js's recordLogin).
+  const loggedInUser = await usersRepo.recordLogin(user.id);
+  res.json({ data: { token: issueToken(loggedInUser), user: toSelf(loggedInUser) } });
 });
 
 // POST /api/auth/forgot-password — public. body: { email }. Reuses the

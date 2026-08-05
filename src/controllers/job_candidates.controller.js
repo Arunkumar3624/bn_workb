@@ -121,6 +121,21 @@ export const listMyCandidates = asyncHandler(async (req, res) => {
   res.json({ data: candidates });
 });
 
+// GET /api/candidates/pending-invited-workers — the business's own
+// worker-invite badge state: which workers already have an outstanding
+// PENDING invite from this business, across all of their own OPEN posts.
+export const getPendingInvitedWorkers = asyncHandler(async (req, res) => {
+  const workerIds = await candidatesRepo.listPendingInvitedWorkerIdsForBusiness(req.user.id);
+  res.json({ data: workerIds });
+});
+
+// GET /api/candidates/stats — the Hustle Stats card's data: how many jobs
+// this worker has applied to this week/month (Worker Dashboard "Momentum").
+export const getMyCandidateStats = asyncHandler(async (req, res) => {
+  const stats = await candidatesRepo.countApplicationsByPeriod(req.user.id);
+  res.json({ data: stats });
+});
+
 // PATCH /api/candidates/:id — accept or decline a candidacy. Who's allowed
 // to respond depends on source: an INVITE is the business's move already
 // made, so only the invited worker can accept/decline it; an APPLICATION is
