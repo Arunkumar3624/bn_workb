@@ -1,7 +1,19 @@
 import { z } from "zod";
+import { MILESTONE_LEVELS } from "../utils/gamification.js";
 
 export const listProfilesQuerySchema = z.object({
   role: z.enum(["worker", "business"]),
+});
+
+// null unpins; any other value must be a real MILESTONES level — the
+// controller additionally checks it against the caller's own current_level
+// (a schema can't see DB state), so this only rules out garbage input.
+export const pinBadgeSchema = z.object({
+  level: z
+    .number()
+    .int()
+    .refine((v) => MILESTONE_LEVELS.includes(v), "Not a real badge level.")
+    .nullable(),
 });
 
 // profilePatch is intentionally free-form (matches users.profile's JSONB,

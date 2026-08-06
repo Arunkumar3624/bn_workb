@@ -30,3 +30,24 @@ export const updateOwnProfile = asyncHandler(async (req, res) => {
   const { password_hash, ...safe } = updated;
   res.json({ data: safe });
 });
+
+// PATCH /api/profiles/me/badge — self only, same as updateOwnProfile above.
+// pinBadgeSchema already confirmed `level` is null or a real MILESTONES
+// level; the one thing only the DB can answer — has this caller actually
+// reached that level — is checked here against their real current_level
+// (never trust the client's own claim of what level it is).
+export const setPinnedBadge = asyncHandler(async (req, res) => {
+  const { level } = req.body;
+
+  if (level !== null) {
+    const user = await usersRepo.findById(req.user.id);
+    if (!user) throw ApiError.notFound("User not found.");
+    if (user.current_level < level) {
+      throw ApiError.badRequest(`You haven't reached Level ${level} yet.`);
+    }
+  }
+
+  const updated = await usersRepo.setPinnedBadge(req.user.id, level);
+  if (!updated) throw ApiError.notFound("User not found.");
+  res.json({ data: { pinnedMilestoneLevel: updated.pinned_milestone_level } });
+});

@@ -86,6 +86,12 @@ const BUSINESS_TIERS = [
   { tier: "Gold", threshold: 200000 },
 ];
 
+// Mirrors WorkerMilestones.jsx's MILESTONES level column exactly — the
+// only levels a worker can ever pin as their profile badge. Kept here
+// (not re-derived) so the backend validation and the frontend badge grid
+// can never silently drift apart.
+export const MILESTONE_LEVELS = [5, 10, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 175, 200];
+
 export function getBusinessTier(totalSpend) {
   const safeSpend = Math.max(0, Number(totalSpend) || 0);
   let current = BUSINESS_TIERS[0];

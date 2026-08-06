@@ -111,6 +111,12 @@ CREATE TABLE users (
   -- increments, resets to 1, or holds steady on a same-day repeat login.
   last_login_at     TIMESTAMPTZ,
   standing_door     standing_door_state NOT NULL DEFAULT 'hidden',
+  -- The single badge (a MILESTONES level from WorkerMilestones.jsx) a
+  -- worker has chosen to show as a small overlay icon on their avatar —
+  -- always exactly one, never a 3-badge loadout. Masked to NULL in
+  -- public_user_profiles below until standing_door leaves 'hidden', same
+  -- Two-Door Reveal gate as xp/current_level.
+  pinned_milestone_level INTEGER,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -128,7 +134,10 @@ CREATE TABLE users (
   CONSTRAINT chk_xp_non_negative CHECK (xp >= 0),
   CONSTRAINT chk_current_level_min CHECK (current_level >= 1),
   CONSTRAINT chk_bridge_tokens_non_negative CHECK (bridge_tokens >= 0),
-  CONSTRAINT chk_current_streak_non_negative CHECK (current_streak >= 0)
+  CONSTRAINT chk_current_streak_non_negative CHECK (current_streak >= 0),
+
+  CONSTRAINT chk_pinned_milestone_level
+    CHECK (pinned_milestone_level IS NULL OR pinned_milestone_level IN (5, 10, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 175, 200))
 );
 
 CREATE INDEX idx_users_role ON users (role);
@@ -180,7 +189,11 @@ CREATE TRIGGER trg_users_updated_at
 -- PII, and BusinessWorkers.jsx's browse-workers listing needs it.
 CREATE VIEW public_user_profiles AS
   SELECT id, role, name, avatar_url, title, verified, behavior_score,
-         rating, reviews_count, created_at, profile
+         rating, reviews_count, created_at, profile,
+         -- Two-Door Reveal gate — see the xp/current_level note above; a
+         -- pinned badge is a proxy for the same hidden progress, so it
+         -- stays masked to NULL until standing_door leaves 'hidden'.
+         CASE WHEN standing_door <> 'hidden' THEN pinned_milestone_level ELSE NULL END AS pinned_milestone_level
   FROM users;
 
 -- ─── 2. projects ────────────────────────────────────────────────────────────

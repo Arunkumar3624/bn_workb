@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { guard } from "../middleware/guard.js";
 import { validate } from "../middleware/validate.js";
-import { listProfilesQuerySchema, updateOwnProfileSchema } from "../validators/profiles.validators.js";
-import { getPublicProfile, listPublicProfiles, updateOwnProfile } from "../controllers/profiles.controller.js";
+import { listProfilesQuerySchema, updateOwnProfileSchema, pinBadgeSchema } from "../validators/profiles.validators.js";
+import { getPublicProfile, listPublicProfiles, updateOwnProfile, setPinnedBadge } from "../controllers/profiles.controller.js";
 
 export const profilesRouter = Router();
 
@@ -13,5 +13,7 @@ export const profilesRouter = Router();
 profilesRouter.get("/", validate(listProfilesQuerySchema, "query"), listPublicProfiles);
 profilesRouter.get("/:id", getPublicProfile);
 
-// The one write in this router — guarded, self only (see updateOwnProfile).
+// Both writes in this router — guarded, self only (see updateOwnProfile /
+// setPinnedBadge).
 profilesRouter.patch("/me", guard, validate(updateOwnProfileSchema), updateOwnProfile);
+profilesRouter.patch("/me/badge", guard, validate(pinBadgeSchema), setPinnedBadge);

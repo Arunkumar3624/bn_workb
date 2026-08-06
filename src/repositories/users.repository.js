@@ -117,6 +117,18 @@ export async function updateSelf(id, { avatarUrl, title, phone, name, profilePat
   return rows[0] ?? null;
 }
 
+// PATCH /api/profiles/me/badge — the only writer of pinned_milestone_level.
+// Eligibility (level must be one of MILESTONE_LEVELS and <= the caller's
+// own current_level) is checked in the controller before this runs, so
+// this stays a plain, trusted write — pass null to unpin.
+export async function setPinnedBadge(id, level) {
+  const { rows } = await query(
+    `UPDATE users SET pinned_milestone_level = $2 WHERE id = $1 RETURNING *`,
+    [id, level]
+  );
+  return rows[0] ?? null;
+}
+
 // POST /api/auth/reset-password's only DB write — the reset OTP itself is
 // verified by the caller (auth.controller.js) before this ever runs.
 export async function updatePassword(id, passwordHash) {
