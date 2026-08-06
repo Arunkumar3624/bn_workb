@@ -11,6 +11,7 @@ import { blocksRouter } from "./blocks.routes.js";
 import { supportRouter } from "./support.routes.js";
 import { perksRouter } from "./perks.routes.js";
 import { pushRouter } from "./push.routes.js";
+import { publicRouter } from "./public.routes.js";
 
 export const apiRouter = Router();
 
@@ -26,6 +27,7 @@ apiRouter.use("/blocks", blocksRouter);
 apiRouter.use("/support", supportRouter);
 apiRouter.use("/perks", perksRouter);
 apiRouter.use("/push", pushRouter);
+apiRouter.use("/public", publicRouter);
 
 // Dev-only token issuance — never mounted in production. See dev.routes.js.
 if (process.env.NODE_ENV !== "production") {
