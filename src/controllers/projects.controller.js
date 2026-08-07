@@ -375,11 +375,20 @@ export const completeProject = asyncHandler(async (req, res) => {
   // business is who calls this endpoint, so the HTTP response alone would
   // only ever reach their browser. This is the only path that gets the
   // result to the worker's own already-connected socket in real time.
+  // xpDelta/tokenDelta are the same fixed constants awardXp already wrote
+  // to both ledgers above — real numbers, not recomputed here, just finally
+  // included in the payload each side's socket listener reads from
+  // (previously the frontend had no way to show what was actually earned,
+  // even though it was already sitting in ledger_events).
   emitProjectEvent(result.project, "COMPLETED", {
     earnings: result.earnings,
     fee: result.fee,
     leveledUp: result.leveledUp,
     newLevel: result.newLevel,
+    workerXpDelta: 50,
+    workerTokenDelta: COMPLETION_TOKEN_REWARD,
+    businessXpDelta: BUSINESS_COMPLETION_XP_REWARD,
+    businessTokenDelta: BUSINESS_COMPLETION_TOKEN_REWARD,
   });
 
   res.json({ data: result });
