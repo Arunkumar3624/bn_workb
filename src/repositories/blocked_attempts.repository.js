@@ -3,12 +3,15 @@ import { query } from "../db/client.js";
 // Written by messages.controller.js the moment containsContactInfo rejects
 // a send — the message itself is never stored, only this record of the
 // attempt (see schema.sql's blocked_message_attempts comment for why).
-export async function create({ projectId, senderId, attemptedText }) {
+// projectId is null for an attempt made through the thread-wide route with
+// no single project in mind; threadId is set for every attempt now (both
+// the old per-project routes and the new thread routes resolve one).
+export async function create({ projectId = null, threadId = null, senderId, attemptedText }) {
   const { rows } = await query(
-    `INSERT INTO blocked_message_attempts (project_id, sender_id, attempted_text)
-     VALUES ($1, $2, $3)
+    `INSERT INTO blocked_message_attempts (project_id, thread_id, sender_id, attempted_text)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [projectId, senderId, attemptedText]
+    [projectId, threadId, senderId, attemptedText]
   );
   return rows[0];
 }
@@ -19,17 +22,23 @@ export async function findById(id) {
 }
 
 // Security Monitor's case queue — joined to sender/business/project names
-// so the admin UI never needs a second lookup per row.
+// so the admin UI never needs a second lookup per row. project_id/thread_id
+// are both LEFT JOINs now (an attempt made through the thread-wide route
+// with no single project has no project row to join) — worker_id/business_id
+// fall back to the thread when there's no project to pull them from.
 export async function listPending() {
   const { rows } = await query(
     `SELECT a.*, s.name AS sender_name, s.role AS sender_role,
-            p.title AS project_title, p.worker_id, p.business_id,
+            p.title AS project_title,
+            COALESCE(p.worker_id, ct.worker_id) AS worker_id,
+            COALESCE(p.business_id, ct.business_id) AS business_id,
             w.name AS worker_name, b.name AS business_name
      FROM blocked_message_attempts a
      JOIN public_user_profiles s ON s.id = a.sender_id
-     JOIN projects p ON p.id = a.project_id
-     LEFT JOIN public_user_profiles w ON w.id = p.worker_id
-     LEFT JOIN public_user_profiles b ON b.id = p.business_id
+     LEFT JOIN projects p ON p.id = a.project_id
+     LEFT JOIN chat_threads ct ON ct.id = a.thread_id
+     LEFT JOIN public_user_profiles w ON w.id = COALESCE(p.worker_id, ct.worker_id)
+     LEFT JOIN public_user_profiles b ON b.id = COALESCE(p.business_id, ct.business_id)
      WHERE a.status = 'PENDING'
      ORDER BY a.created_at DESC`
   );

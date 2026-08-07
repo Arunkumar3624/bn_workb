@@ -476,18 +476,53 @@ CREATE TRIGGER trg_submissions_updated_at
   BEFORE UPDATE ON submissions
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ─── 6b. chat_threads ───────────────────────────────────────────────────────
+-- One row per (business, worker) pair — a persistent conversation that
+-- spans every project they've ever done together, rather than a fresh chat
+-- per project. Created lazily the first time a candidacy between the two is
+-- accepted (job_candidates.controller.js's respondToCandidate) and reused
+-- for every project after that — the same trust boundary the old per-project
+-- gate had (no chat before a real acceptance), just remembered across
+-- projects instead of reset every time. See migrations/031_chat_threads.sql.
+
+CREATE TABLE chat_threads (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id  UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  worker_id    UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT uq_chat_threads_business_worker UNIQUE (business_id, worker_id)
+);
+
+CREATE INDEX idx_chat_threads_business_id ON chat_threads (business_id);
+CREATE INDEX idx_chat_threads_worker_id ON chat_threads (worker_id);
+
+CREATE TRIGGER trg_chat_threads_updated_at
+  BEFORE UPDATE ON chat_threads
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- ─── 7. messages ────────────────────────────────────────────────────────────
--- Real-time per-project chat — one continuous thread spanning a project's
--- whole lifecycle (invite through completion), replacing the fake seeded
--- conversations in WorkerNegotiationInbox.jsx / BusinessNegotiationHub.jsx.
--- A message either carries text (body) or wraps a shared file
--- (submission_id, reusing the existing Trust Checker moderation pipeline —
--- see messages.repository.js for how visibility mirrors submissions' own
--- "submitter sees any status, counterparty only sees APPROVED" rule).
+-- Real-time chat. Originally strictly per-project (invite through
+-- completion); migrations/031_chat_threads.sql layered a persistent
+-- per-relationship thread_id on top without breaking the original shape —
+-- project_id stays populated for every message the per-project
+-- /api/projects/:id/messages routes write (unchanged behavior), while
+-- thread_id additionally points at the (business, worker) pair's one
+-- continuous conversation across every project they've ever done together,
+-- which the newer /api/threads/:id routes read from. A message either
+-- carries text (body) or wraps a shared file (submission_id, reusing the
+-- existing Trust Checker moderation pipeline — see messages.repository.js
+-- for how visibility mirrors submissions' own "submitter sees any status,
+-- counterparty only sees APPROVED" rule).
 
 CREATE TABLE messages (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id        UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  -- Nullable: a message sent through the thread-wide route with no single
+  -- project in mind (general conversation, not a deliverable) has no
+  -- project_id at all. Still set for every per-project-route message and for
+  -- any attachment (a deliverable always belongs to exactly one project).
+  project_id        UUID REFERENCES projects(id) ON DELETE CASCADE,
   sender_id         UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   body              TEXT,
   submission_id     UUID REFERENCES submissions(id) ON DELETE SET NULL,
@@ -497,12 +532,18 @@ CREATE TABLE messages (
   -- bubble. sender_id is still the issuing admin's id (FK requires a real
   -- user), this flag is what tells ChatThread.jsx to render it differently.
   is_system_notice  BOOLEAN NOT NULL DEFAULT FALSE,
+  -- The (business, worker) pair's persistent conversation this message
+  -- belongs to — see chat_threads below. Backfilled for every pre-existing
+  -- message by migrations/031_chat_threads.sql; every new message gets one
+  -- resolved server-side (messages.controller.js), never client-supplied.
+  thread_id         UUID REFERENCES chat_threads(id) ON DELETE CASCADE,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   CONSTRAINT chk_message_content CHECK (body IS NOT NULL OR submission_id IS NOT NULL)
 );
 
 CREATE INDEX idx_messages_project_id_created_at ON messages (project_id, created_at);
+CREATE INDEX idx_messages_thread_id_created_at ON messages (thread_id, created_at);
 
 -- ─── 7b. user_blocks ────────────────────────────────────────────────────────
 -- WhatsApp-style blocking: either participant on a chat can block the
@@ -610,7 +651,11 @@ CREATE TYPE blocked_attempt_status AS ENUM ('PENDING', 'REDACTED_AND_SENT', 'BAN
 
 CREATE TABLE blocked_message_attempts (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id        UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  -- Nullable for the same reason messages.project_id is — an attempt made
+  -- through the thread-wide route isn't necessarily about one project.
+  -- thread_id (see chat_threads above) is the one that's always set.
+  project_id        UUID REFERENCES projects(id) ON DELETE RESTRICT,
+  thread_id         UUID REFERENCES chat_threads(id) ON DELETE CASCADE,
   sender_id         UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   attempted_text    TEXT NOT NULL,
   status            blocked_attempt_status NOT NULL DEFAULT 'PENDING',
@@ -621,6 +666,7 @@ CREATE TABLE blocked_message_attempts (
 );
 
 CREATE INDEX idx_blocked_attempts_project_id ON blocked_message_attempts (project_id);
+CREATE INDEX idx_blocked_attempts_thread_id  ON blocked_message_attempts (thread_id);
 CREATE INDEX idx_blocked_attempts_sender_id  ON blocked_message_attempts (sender_id);
 CREATE INDEX idx_blocked_attempts_status     ON blocked_message_attempts (status);
 

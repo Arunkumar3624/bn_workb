@@ -27,3 +27,12 @@ export const sendAttachmentMessageSchema = z.discriminatedUnion("type", [
   linkAttachmentSchema,
   imageAttachmentSchema,
 ]);
+
+// The thread-wide route's attachment endpoint isn't scoped to one project by
+// its URL the way /api/projects/:id/messages/attachment is — a deliverable
+// shared from the merged conversation has to say up front which of the
+// (possibly several) live projects between this pair it's for.
+export const sendThreadAttachmentMessageSchema = z.discriminatedUnion("type", [
+  linkAttachmentSchema.extend({ projectId: z.string().uuid() }),
+  imageAttachmentSchema.extend({ projectId: z.string().uuid() }),
+]);

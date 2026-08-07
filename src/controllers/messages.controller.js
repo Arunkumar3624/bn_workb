@@ -8,7 +8,8 @@ import * as submissionsRepo from "../repositories/submissions.repository.js";
 import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
 import * as userBlocksRepo from "../repositories/user_blocks.repository.js";
 import * as notificationsRepo from "../repositories/notifications.repository.js";
-import { emitProjectEvent } from "../realtime/events.js";
+import * as threadsRepo from "../repositories/threads.repository.js";
+import { emitProjectEvent, emitThreadEvent } from "../realtime/events.js";
 
 async function mustBeParticipant(req, projectId) {
   const project = await projectsRepo.findById(projectId);
@@ -21,13 +22,27 @@ async function mustBeParticipant(req, projectId) {
   return project;
 }
 
+// The thread-side counterpart to mustBeParticipant above — same shape, just
+// resolving a chat_threads row (a persistent business/worker pair, see
+// threads.repository.js) instead of a project.
+async function mustBeThreadParticipant(req, threadId) {
+  const thread = await threadsRepo.findById(threadId);
+  if (!thread) throw ApiError.notFound("Conversation not found.");
+
+  const isParticipant = thread.worker_id === req.user.id || thread.business_id === req.user.id;
+  if (!isParticipant && req.user.role !== "admin") {
+    throw ApiError.forbidden("You are not a participant in this conversation.");
+  }
+  return thread;
+}
+
 // WhatsApp-style block, enforced server-side (not just a disabled composer
 // — see ChatThread.jsx) — blocks in either direction stop a send, same as
 // real blocking. Admin senders (system notices) bypass this entirely, same
-// as the participant check above.
-async function assertNotBlocked(req, project) {
+// as the participant checks above. Takes the other participant's id
+// directly so both the project-scoped and thread-scoped callers can share it.
+async function assertNotBlocked(req, otherUserId) {
   if (req.user.role === "admin") return;
-  const otherUserId = project.worker_id === req.user.id ? project.business_id : project.worker_id;
   if (!otherUserId) return;
   const status = await userBlocksRepo.getStatus(req.user.id, otherUserId);
   if (status.blocked_by_me) throw ApiError.forbidden("You've blocked this user — unblock them to send a message.");
@@ -58,14 +73,21 @@ async function notifyBlockedAttempt(senderId) {
   }
 }
 
-// POST /api/projects/:id/messages — a plain text chat message. One
-// continuous thread per project (see the messages table's own comment in
-// schema.sql) — this doesn't gate on project status the way the old fake
-// per-negotiation chats did, since the same thread now also carries the
-// Active Workspace conversation.
+// POST /api/projects/:id/messages — a plain text chat message. Unchanged
+// behavior from before the entity-thread migration (migrations/031) — still
+// gated on and filtered to this one project. Also resolves/creates the
+// (business, worker) pair's persistent chat_threads row and stamps it on the
+// message, purely so the newer /api/threads/:id routes see this message too
+// once a frontend actually reads from there — nothing about this route's own
+// response or visibility changes.
 export const sendMessage = asyncHandler(async (req, res) => {
   const project = await mustBeParticipant(req, req.params.id);
-  await assertNotBlocked(req, project);
+  const otherUserId = project.worker_id === req.user.id ? project.business_id : project.worker_id;
+  await assertNotBlocked(req, otherUserId);
+
+  const thread = project.worker_id
+    ? await threadsRepo.getOrCreateThread(project.business_id, project.worker_id)
+    : null;
 
   const { body } = req.body;
   if (containsContactInfo(body)) {
@@ -73,12 +95,18 @@ export const sendMessage = asyncHandler(async (req, res) => {
     // Security Monitor (admin.controller.js) to review. See
     // schema.sql's blocked_message_attempts comment for why this is the one
     // place blocked content is kept at all.
-    await blockedAttemptsRepo.create({ projectId: req.params.id, senderId: req.user.id, attemptedText: body });
+    await blockedAttemptsRepo.create({
+      projectId: req.params.id,
+      threadId: thread?.id ?? null,
+      senderId: req.user.id,
+      attemptedText: body,
+    });
     await notifyBlockedAttempt(req.user.id);
     throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
   }
 
   const message = await messagesRepo.create({
+    threadId: thread?.id ?? null,
     projectId: req.params.id,
     senderId: req.user.id,
     body,
@@ -99,11 +127,21 @@ export const sendMessage = asyncHandler(async (req, res) => {
 // pointing at a submission that doesn't exist.
 export const sendAttachmentMessage = asyncHandler(async (req, res) => {
   const project = await mustBeParticipant(req, req.params.id);
-  await assertNotBlocked(req, project);
+  const otherUserId = project.worker_id === req.user.id ? project.business_id : project.worker_id;
+  await assertNotBlocked(req, otherUserId);
+
+  const thread = project.worker_id
+    ? await threadsRepo.getOrCreateThread(project.business_id, project.worker_id)
+    : null;
 
   const { type, url, imageData, caption } = req.body;
   if (containsContactInfo(caption)) {
-    await blockedAttemptsRepo.create({ projectId: req.params.id, senderId: req.user.id, attemptedText: caption });
+    await blockedAttemptsRepo.create({
+      projectId: req.params.id,
+      threadId: thread?.id ?? null,
+      senderId: req.user.id,
+      attemptedText: caption,
+    });
     await notifyBlockedAttempt(req.user.id);
     throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
   }
@@ -118,6 +156,7 @@ export const sendAttachmentMessage = asyncHandler(async (req, res) => {
       caption,
     });
     const createdMessage = await messagesRepo.createLinkedToSubmission(client, {
+      threadId: thread?.id ?? null,
       projectId: req.params.id,
       senderId: req.user.id,
       body: caption ?? null,
@@ -146,17 +185,115 @@ export const sendAttachmentMessage = asyncHandler(async (req, res) => {
 // counterparty once its submission is APPROVED — PENDING_REVIEW/REJECTED
 // stay invisible to them, not just unlabeled. Admins and the sender always
 // see it. Plain text messages (no submission_id) never went through
-// moderation, so they carry no such gate.
+// moderation, so they carry no such gate. Unchanged by the entity-thread
+// migration — still filtered to this one project's own history.
 export const listMessages = asyncHandler(async (req, res) => {
   await mustBeParticipant(req, req.params.id);
 
   const all = await messagesRepo.listForProject(req.params.id);
-  const visible =
-    req.user.role === "admin"
-      ? all
-      : all.filter(
-          (m) => !m.submission_id || m.submission_submitted_by === req.user.id || m.submission_status === "APPROVED"
-        );
+  const visible = filterVisibleMessages(all, req.user);
 
   res.json({ data: visible });
+});
+
+function filterVisibleMessages(messages, user) {
+  if (user.role === "admin") return messages;
+  return messages.filter(
+    (m) => !m.submission_id || m.submission_submitted_by === user.id || m.submission_status === "APPROVED"
+  );
+}
+
+// GET /api/threads — the merged Negotiations inbox: one row per
+// counterparty (spanning every project with them) instead of one per
+// project. See threads.repository.js's getUserThreads.
+export const listMyThreads = asyncHandler(async (req, res) => {
+  const threads = await threadsRepo.getUserThreads(req.user.id);
+  res.json({ data: threads });
+});
+
+// GET /api/threads/:id/messages — the full relationship history, spanning
+// every project this pair has ever worked on together. Same visibility rule
+// as the per-project listMessages above.
+export const listThreadMessages = asyncHandler(async (req, res) => {
+  const thread = await mustBeThreadParticipant(req, req.params.id);
+  const all = await messagesRepo.listForThread(thread.id);
+  const visible = filterVisibleMessages(all, req.user);
+
+  res.json({ data: visible });
+});
+
+// POST /api/threads/:id/messages — a plain text message in the merged
+// conversation, not tied to any one project (project_id stays null). This
+// is deliberately just talk — structural project actions (uploading a
+// deliverable, requesting a fund release) go through
+// sendThreadAttachmentMessage below or the existing per-project routes
+// instead, never inferred from "whichever project happens to be active."
+export const sendThreadMessage = asyncHandler(async (req, res) => {
+  const thread = await mustBeThreadParticipant(req, req.params.id);
+  const otherUserId = thread.worker_id === req.user.id ? thread.business_id : thread.worker_id;
+  await assertNotBlocked(req, otherUserId);
+
+  const { body } = req.body;
+  if (containsContactInfo(body)) {
+    await blockedAttemptsRepo.create({ threadId: thread.id, senderId: req.user.id, attemptedText: body });
+    await notifyBlockedAttempt(req.user.id);
+    throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
+  }
+
+  const message = await messagesRepo.create({ threadId: thread.id, senderId: req.user.id, body });
+
+  emitThreadEvent(thread, "MESSAGE_CREATED", { messageId: message.id, senderId: req.user.id });
+
+  res.status(201).json({ data: message });
+});
+
+// POST /api/threads/:id/messages/attachment — a deliverable shared from a
+// specific Active Project Card in the merged conversation, not the general
+// composer. projectId in the body says which of the (possibly several) live
+// projects between this pair it belongs to, and is verified to actually be
+// one of them — never trusted blind, since escrow/deliverable review both
+// key off project_id and must never attach to the wrong contract.
+export const sendThreadAttachmentMessage = asyncHandler(async (req, res) => {
+  const thread = await mustBeThreadParticipant(req, req.params.id);
+  const otherUserId = thread.worker_id === req.user.id ? thread.business_id : thread.worker_id;
+  await assertNotBlocked(req, otherUserId);
+
+  const { type, url, imageData, caption, projectId } = req.body;
+  const project = await projectsRepo.findById(projectId);
+  if (!project || project.business_id !== thread.business_id || project.worker_id !== thread.worker_id) {
+    throw ApiError.badRequest("That project isn't part of this conversation.");
+  }
+
+  if (containsContactInfo(caption)) {
+    await blockedAttemptsRepo.create({ threadId: thread.id, projectId, senderId: req.user.id, attemptedText: caption });
+    await notifyBlockedAttempt(req.user.id);
+    throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
+  }
+
+  const { message, submission } = await transaction(async (client) => {
+    const createdSubmission = await submissionsRepo.createWithClient(client, {
+      projectId,
+      submittedBy: req.user.id,
+      type,
+      url,
+      imageData,
+      caption,
+    });
+    const createdMessage = await messagesRepo.createLinkedToSubmission(client, {
+      threadId: thread.id,
+      projectId,
+      senderId: req.user.id,
+      body: caption ?? null,
+      submissionId: createdSubmission.id,
+    });
+    return { message: createdMessage, submission: createdSubmission };
+  });
+
+  // The project itself still gets its own event — DeliverablesPanel and
+  // anything else scoped to that one project listens on the project room,
+  // not the thread. The thread gets the chat-visible message event.
+  emitProjectEvent(project, "SUBMISSION_CREATED", { submissionId: submission.id, submittedBy: req.user.id });
+  emitThreadEvent(thread, "MESSAGE_CREATED", { messageId: message.id, senderId: req.user.id, projectId });
+
+  res.status(201).json({ data: message });
 });

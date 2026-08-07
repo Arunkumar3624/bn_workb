@@ -126,6 +126,39 @@ export function emitProjectEvent(project, type, payload = {}) {
   fireNotification(project.business_id, businessCopy, notifType);
 }
 
+// Thread-side counterpart to emitProjectEvent, for the entity-wide chat
+// (see chat_threads/threads.repository.js). A thread's participants are
+// always exactly the same two people (business_id, worker_id) — unlike a
+// project, there's no third "anyone viewing this page" audience, so this
+// only ever needs their two private user rooms, no separate thread room.
+function buildThreadPushCopy(type, role) {
+  const url = role === "worker" ? workerNegotiationUrl() : BUSINESS_DASHBOARD_URL;
+  switch (type) {
+    case "MESSAGE_CREATED":
+      return { title: "New message", body: "You have a new message.", url };
+    default:
+      return null;
+  }
+}
+
+export function emitThreadEvent(thread, type, payload = {}) {
+  const io = getIO();
+  const event = { type, threadId: thread.id, ...payload };
+
+  if (io) {
+    io.to(userRoom(thread.worker_id)).emit("project:event", event);
+    io.to(userRoom(thread.business_id)).emit("project:event", event);
+  }
+
+  const notifType = notificationTypeFor(type);
+  const workerCopy = buildThreadPushCopy(type, "worker");
+  firePush(thread.worker_id, workerCopy);
+  fireNotification(thread.worker_id, workerCopy, notifType);
+  const businessCopy = buildThreadPushCopy(type, "business");
+  firePush(thread.business_id, businessCopy);
+  fireNotification(thread.business_id, businessCopy, notifType);
+}
+
 // The job board's candidate events (a new invite, "this job was filled by
 // someone else") target one specific user who isn't necessarily a
 // participant on the project yet — an OPEN project's worker_id is null, so

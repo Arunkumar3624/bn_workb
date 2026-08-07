@@ -11,6 +11,7 @@ import * as messagesRepo from "../repositories/messages.repository.js";
 import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
 import * as withdrawalRequestsRepo from "../repositories/withdrawal_requests.repository.js";
 import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
+import * as threadsRepo from "../repositories/threads.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 import { sendEscrowFundedSms } from "../services/sms.service.js";
 
@@ -510,10 +511,20 @@ export const moderateUser = asyncHandler(async (req, res) => {
       if (!projectId) {
         throw ApiError.badRequest("projectId is required to warn a user — the warning is delivered in that project's chat.");
       }
+      const warnedProject = await projectsRepo.findById(projectId, client);
+      if (!warnedProject) throw ApiError.notFound("Project not found.");
       const noticeText =
         note ||
         `Admin Warning: sharing phone numbers, email addresses, or other contact details in chat is not allowed on WorkBridge. This is a formal warning — continued violations may result in account suspension.`;
-      noticeMessage = await messagesRepo.createSystemNotice(client, { projectId, adminId: req.user.id, body: noticeText });
+      const warningThread = warnedProject.worker_id
+        ? await threadsRepo.getOrCreateThread(warnedProject.business_id, warnedProject.worker_id, client)
+        : null;
+      noticeMessage = await messagesRepo.createSystemNotice(client, {
+        threadId: warningThread?.id ?? null,
+        projectId,
+        adminId: req.user.id,
+        body: noticeText,
+      });
       logAction = "SECURITY_WARNING_SENT";
       logNotes = `Warned ${target.name} from Message Monitor: "${noticeText}"`;
     } else if (action === "deduct_points") {
@@ -650,6 +661,7 @@ export const resolveBlockedAttempt = asyncHandler(async (req, res) => {
         throw ApiError.badRequest("The edited message still contains contact info — remove it before sending.");
       }
       sentMessage = await messagesRepo.create({
+        threadId: attempt.thread_id,
         projectId: attempt.project_id,
         senderId: attempt.sender_id,
         body: editedBody.trim(),
