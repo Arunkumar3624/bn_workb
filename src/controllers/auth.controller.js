@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
-import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { randomBytes, createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { transaction } from "../db/client.js";
@@ -217,6 +218,96 @@ export const login = asyncHandler(async (req, res) => {
   // The Daily Streak Engine's real trigger — every successful login
   // compares against the previous one and updates current_streak/
   // last_login_at atomically (see users.repository.js's recordLogin).
+  const loggedInUser = await usersRepo.recordLogin(user.id);
+  res.json({ data: { token: issueToken(loggedInUser), user: toSelf(loggedInUser) } });
+});
+
+// Built once and reused — verifyIdToken() is cheap to call repeatedly, the
+// client itself doesn't need to be. Only constructed when GOOGLE_CLIENT_ID
+// is actually set, so a server with it unconfigured never even imports a
+// broken client.
+let googleClient = null;
+function getGoogleClient() {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) return null;
+  if (!googleClient) googleClient = new OAuth2Client(clientId);
+  return googleClient;
+}
+
+// A random, cryptographically unguessable password for accounts created via
+// Google — password_hash stays NOT NULL (see migrations/029_google_oauth.sql)
+// without ever being a real, typeable password; login() can never succeed
+// against it because bcrypt.compare needs the original 32 random bytes, not
+// just "any string."
+async function generateUnusablePasswordHash() {
+  return bcrypt.hash(randomBytes(32).toString("hex"), SALT_ROUNDS);
+}
+
+// POST /api/auth/google — public. body: { credential, role? }. `credential`
+// is the ID token Google Identity Services hands the frontend after the
+// user picks an account — verified here server-side against
+// GOOGLE_CLIENT_ID, never trusted as-is. `role` is only used the FIRST time
+// this Google account (or its email) is seen, to create the right kind of
+// account; an existing user's real role always wins, regardless of what the
+// frontend sends.
+export const googleAuth = asyncHandler(async (req, res) => {
+  const client = getGoogleClient();
+  if (!client) throw ApiError.internal("Google sign-in is not configured on the server.");
+
+  const { credential, role } = req.body;
+
+  let payload;
+  try {
+    const ticket = await client.verifyIdToken({ idToken: credential, audience: process.env.GOOGLE_CLIENT_ID });
+    payload = ticket.getPayload();
+  } catch {
+    throw ApiError.unauthorized("Could not verify that Google sign-in — please try again.");
+  }
+
+  if (!payload?.email_verified) {
+    throw ApiError.unauthorized("Your Google account's email isn't verified.");
+  }
+
+  const email = payload.email.trim().toLowerCase();
+  const googleId = payload.sub;
+
+  let user = await usersRepo.findByGoogleId(googleId);
+
+  if (!user) {
+    const existingByEmail = await usersRepo.findByEmail(email);
+    if (existingByEmail) {
+      // Same person, previously signed up with a password — link this
+      // Google account to that same row instead of erroring or duplicating.
+      user = await usersRepo.linkGoogleId(existingByEmail.id, googleId);
+    } else {
+      // Brand new account. `role` only matters on this branch — see the
+      // function comment above.
+      if (role !== "worker" && role !== "business") {
+        throw ApiError.badRequest("Choose Freelancer or Business to finish creating your account.");
+      }
+      const passwordHash = await generateUnusablePasswordHash();
+      try {
+        user = await usersRepo.create({
+          role,
+          name: payload.name || email.split("@")[0],
+          email,
+          phone: null,
+          passwordHash,
+          emailVerified: true,
+          googleId,
+          avatarUrl: payload.picture || null,
+        });
+      } catch (err) {
+        if (err.code === "23505") throw ApiError.conflict("An account with this email already exists.");
+        throw err;
+      }
+    }
+  }
+
+  if (!user.is_active) {
+    throw ApiError.forbidden("This account has been suspended. Contact support if you believe this is a mistake.");
+  }
+
   const loggedInUser = await usersRepo.recordLogin(user.id);
   res.json({ data: { token: issueToken(loggedInUser), user: toSelf(loggedInUser) } });
 });

@@ -15,6 +15,15 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+// role is only actually used the first time this Google account is seen
+// (see auth.controller.js's googleAuth) — optional here so a returning
+// user's request doesn't need it, but still restricted to worker|business
+// so this endpoint can never be used to create an admin either.
+export const googleAuthSchema = z.object({
+  credential: z.string().min(20, "Missing Google credential."),
+  role: z.enum(["worker", "business"]).optional(),
+});
+
 const emailSchema = z.string().trim().toLowerCase().email("Enter a valid email address.");
 
 export const verifyOtpSchema = z.object({

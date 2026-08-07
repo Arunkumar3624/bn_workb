@@ -4,6 +4,7 @@ import { validate } from "../middleware/validate.js";
 import {
   registerSchema,
   loginSchema,
+  googleAuthSchema,
   verifyOtpSchema,
   resendOtpSchema,
   forgotPasswordSchema,
@@ -14,6 +15,7 @@ import {
 import {
   register,
   login,
+  googleAuth,
   verifyOtp,
   resendOtp,
   forgotPassword,
@@ -31,6 +33,7 @@ authRouter.post("/register", validate(registerSchema), register);
 authRouter.post("/verify-otp", validate(verifyOtpSchema), verifyOtp);
 authRouter.post("/resend-otp", validate(resendOtpSchema), resendOtp);
 authRouter.post("/login", validate(loginSchema), login);
+authRouter.post("/google", validate(googleAuthSchema), googleAuth);
 
 // Password recovery — the one gap left by dropping OTP-per-login. Public,
 // same as register/login.

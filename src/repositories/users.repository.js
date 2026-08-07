@@ -17,6 +17,23 @@ export async function findByPhone(phone) {
   return rows[0] ?? null;
 }
 
+// POST /api/auth/google's fast path — an account that's already used
+// "Continue with Google" before is looked up by Google's stable "sub"
+// claim, not email (an email match still runs first-time to link an
+// existing password account instead of erroring — see auth.controller.js).
+export async function findByGoogleId(googleId) {
+  const { rows } = await query(`SELECT * FROM users WHERE google_id = $1`, [googleId]);
+  return rows[0] ?? null;
+}
+
+// Links a Google account to an existing (password-created) user the first
+// time they use "Continue with Google" with the same email — after this,
+// findByGoogleId finds them directly.
+export async function linkGoogleId(id, googleId) {
+  const { rows } = await query(`UPDATE users SET google_id = $2 WHERE id = $1 RETURNING *`, [id, googleId]);
+  return rows[0] ?? null;
+}
+
 // Lightweight — only the one column guard.js and the login flow actually
 // need, so a banned-user check doesn't pull the whole row on every request.
 export async function isActive(id) {
@@ -63,12 +80,12 @@ export async function adjustBehaviorScore(client, id, delta) {
 // signup is only ever created there, once the OTP check already succeeded
 // (see pending_signups / auth.controller.js), so it's always verified from
 // the moment it exists.
-export async function create({ role, name, email, phone, passwordHash, emailVerified = true }) {
+export async function create({ role, name, email, phone, passwordHash, emailVerified = true, googleId = null, avatarUrl = null }) {
   const { rows } = await query(
-    `INSERT INTO users (role, name, email, phone, password_hash, email_verified)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (role, name, email, phone, password_hash, email_verified, google_id, avatar_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [role, name, email, phone ?? null, passwordHash, emailVerified]
+    [role, name, email, phone ?? null, passwordHash, emailVerified, googleId, avatarUrl]
   );
   return rows[0];
 }

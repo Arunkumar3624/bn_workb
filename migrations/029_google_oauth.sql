@@ -1,0 +1,13 @@
+-- Incremental migration — see migrations/025_reinvite_after_decision.sql for
+-- the same "one real fix, no invented tables" pattern.
+--
+-- Lets a user sign in/sign up with a real Google account (POST
+-- /api/auth/google, verified server-side via google-auth-library's
+-- verifyIdToken — no client-trusted claims). google_id is Google's stable
+-- "sub" claim, nullable since most accounts still sign up with a password;
+-- UNIQUE so the same Google account can never get linked to two different
+-- WorkBridge users. password_hash stays NOT NULL for Google-created
+-- accounts too — the controller fills it with a random, never-typeable
+-- bcrypt hash rather than relaxing the column, so every other password
+-- code path (login, change-password) keeps one invariant to rely on.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;

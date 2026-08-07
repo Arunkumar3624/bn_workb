@@ -77,6 +77,13 @@ CREATE TABLE users (
   email             CITEXT NOT NULL UNIQUE,
   phone             TEXT,
   password_hash     TEXT NOT NULL,
+  -- Google's stable "sub" claim, set the first time this person uses
+  -- "Continue with Google" (POST /api/auth/google) — nullable since most
+  -- accounts still sign up with a password, UNIQUE so one Google account
+  -- can never link to two different users. password_hash still gets a
+  -- random, never-typeable bcrypt hash for these accounts rather than
+  -- going nullable — see migrations/029_google_oauth.sql.
+  google_id         TEXT UNIQUE,
   avatar_url        TEXT,
   title             TEXT,                          -- e.g. "Full-Stack Developer" (worker) / "Retail" (business industry)
   verified          BOOLEAN NOT NULL DEFAULT FALSE, -- ID-verified worker / payment-verified business
