@@ -7,6 +7,7 @@ import * as messagesRepo from "../repositories/messages.repository.js";
 import * as submissionsRepo from "../repositories/submissions.repository.js";
 import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
 import * as userBlocksRepo from "../repositories/user_blocks.repository.js";
+import * as notificationsRepo from "../repositories/notifications.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 
 async function mustBeParticipant(req, projectId) {
@@ -36,6 +37,27 @@ async function assertNotBlocked(req, project) {
 const CONTACT_INFO_MESSAGE =
   "Sharing phone numbers or email addresses in chat isn't allowed — keep contact details off WorkBridge.";
 
+// Blocked sends previously only surfaced as an inline composer error at the
+// moment they happened — easy to miss, and gone the second the sender
+// navigates away. This gives them a real, persisted record in their own
+// Notification Bell (the same table/drawer real project events use), not
+// just a fleeting toast. Fire-and-forget on purpose, same as
+// realtime/events.js's fireNotification — a failed insert here must never
+// block the 400 rejection that's the actual point of this code path.
+async function notifyBlockedAttempt(senderId) {
+  try {
+    await notificationsRepo.create({
+      userId: senderId,
+      title: "Message blocked",
+      message: CONTACT_INFO_MESSAGE,
+      type: "SYSTEM",
+      url: null,
+    });
+  } catch (err) {
+    console.error("[messages] Could not persist blocked-attempt notification:", err);
+  }
+}
+
 // POST /api/projects/:id/messages — a plain text chat message. One
 // continuous thread per project (see the messages table's own comment in
 // schema.sql) — this doesn't gate on project status the way the old fake
@@ -52,6 +74,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
     // schema.sql's blocked_message_attempts comment for why this is the one
     // place blocked content is kept at all.
     await blockedAttemptsRepo.create({ projectId: req.params.id, senderId: req.user.id, attemptedText: body });
+    await notifyBlockedAttempt(req.user.id);
     throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
   }
 
@@ -81,6 +104,7 @@ export const sendAttachmentMessage = asyncHandler(async (req, res) => {
   const { type, url, imageData, caption } = req.body;
   if (containsContactInfo(caption)) {
     await blockedAttemptsRepo.create({ projectId: req.params.id, senderId: req.user.id, attemptedText: caption });
+    await notifyBlockedAttempt(req.user.id);
     throw ApiError.badRequest(CONTACT_INFO_MESSAGE);
   }
 

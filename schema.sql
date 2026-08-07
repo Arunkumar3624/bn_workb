@@ -730,6 +730,23 @@ CREATE TABLE push_subscriptions (
 
 CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions (user_id);
 
+-- Persists the exact same events push notifications already fire for
+-- (buildProjectPushCopy in realtime/events.js) — the notification
+-- bell/drawer's real history, sourced from the same copy generation so the
+-- two can never say different things about the same event.
+CREATE TABLE notifications (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  message     TEXT NOT NULL,
+  type        TEXT NOT NULL, -- 'SYSTEM' | 'PAYMENT' | 'PROJECT'
+  url         TEXT,          -- click-through target, same one push already used
+  is_read     BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_notifications_user_id_created_at ON notifications (user_id, created_at DESC);
+
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --
 -- 1. wallet_balance is a cache, transactions is the ledger of record.

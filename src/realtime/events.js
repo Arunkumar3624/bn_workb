@@ -1,6 +1,7 @@
 import { getIO, userRoom, projectRoom, adminRoom } from "./socket.js";
 import { sendPushToUser } from "../services/push.service.js";
 import * as usersRepo from "../repositories/users.repository.js";
+import * as notificationsRepo from "../repositories/notifications.repository.js";
 
 // Real device push (Notification/Push API — see push.service.js) reaches a
 // user whether or not they're actively connected via socket right now,
@@ -13,6 +14,29 @@ import * as usersRepo from "../repositories/users.repository.js";
 function firePush(userId, copy) {
   if (!copy) return;
   sendPushToUser(userId, copy).catch((err) => console.error("[push] sendPushToUser threw:", err));
+}
+
+// Persists the exact same copy a push notification used into the
+// notifications table (migrations/030_notifications.sql) — every call site
+// below already fires firePush with this `copy`, this just also gives the
+// user an in-app history to look back at, not just a device notification
+// that's gone once dismissed. Same fire-and-forget shape as firePush: a
+// failed insert here must never break the socket emit or push send it runs
+// alongside.
+function fireNotification(userId, copy, type) {
+  if (!copy) return;
+  notificationsRepo
+    .create({ userId, title: copy.title, message: copy.body, type, url: copy.url })
+    .catch((err) => console.error("[notifications] create threw:", err));
+}
+
+// Coarse bucket per event type, matching the three the notifications table
+// documents — not meant to be exhaustive UI taxonomy, just enough to color
+// or filter the drawer by later if that's ever wanted.
+function notificationTypeFor(eventType) {
+  if (eventType === "COMPLETED") return "PAYMENT";
+  if (eventType === "SUPPORT_MESSAGE_CREATED") return "SYSTEM";
+  return "PROJECT";
 }
 
 const WORKER_JOB_FEED_URL = "/worker";
@@ -91,8 +115,15 @@ export function emitProjectEvent(project, type, payload = {}) {
     io.to(projectRoom(project.id)).emit("project:event", event);
   }
 
-  if (project.worker_id) firePush(project.worker_id, buildProjectPushCopy(type, payload, project, "worker"));
-  firePush(project.business_id, buildProjectPushCopy(type, payload, project, "business"));
+  const notifType = notificationTypeFor(type);
+  if (project.worker_id) {
+    const workerCopy = buildProjectPushCopy(type, payload, project, "worker");
+    firePush(project.worker_id, workerCopy);
+    fireNotification(project.worker_id, workerCopy, notifType);
+  }
+  const businessCopy = buildProjectPushCopy(type, payload, project, "business");
+  firePush(project.business_id, businessCopy);
+  fireNotification(project.business_id, businessCopy, notifType);
 }
 
 // The job board's candidate events (a new invite, "this job was filled by
@@ -132,7 +163,9 @@ export function emitToUser(userId, type, payload = {}) {
     .findById(userId)
     .then((user) => {
       const url = user?.role === "business" ? BUSINESS_DASHBOARD_URL : WORKER_JOB_FEED_URL;
-      firePush(userId, { ...copy, url });
+      const fullCopy = { ...copy, url };
+      firePush(userId, fullCopy);
+      fireNotification(userId, fullCopy, "PROJECT");
     })
     .catch((err) => console.error("[push] Could not resolve recipient role:", err));
 }
@@ -153,5 +186,7 @@ export function emitSupportMessage(thread, payload = {}) {
     io.to(adminRoom()).emit("project:event", event);
   }
 
-  firePush(thread.user_id, { title: "Support reply", body: "You have a new message from WorkBridge Support.", url: "/" });
+  const supportCopy = { title: "Support reply", body: "You have a new message from WorkBridge Support.", url: "/" };
+  firePush(thread.user_id, supportCopy);
+  fireNotification(thread.user_id, supportCopy, "SYSTEM");
 }
