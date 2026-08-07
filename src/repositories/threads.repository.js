@@ -2,9 +2,13 @@ import { query } from "../db/client.js";
 
 // One row per (business_id, worker_id) pair — the persistent relationship
 // thread that backs both the original per-project chat routes and the newer
-// entity-wide ones. Created lazily the first time a candidacy between the
-// two is accepted (see job_candidates.controller.js's respondToCandidate)
-// and reused for every project after that. The INSERT ... ON CONFLICT ...
+// entity-wide ones. Created lazily the moment a project between the two
+// first gets a real worker_id — either a direct invite (projects.controller
+// .js's createProject, which assigns worker_id from birth) or an accepted
+// open-post candidacy (job_candidates.controller.js's respondToCandidate) —
+// mirroring messages.controller.js's mustBeParticipant, which has always
+// allowed chat as soon as a real worker_id exists, not just after
+// acceptance. Reused for every project after that. The INSERT ... ON CONFLICT ...
 // DO UPDATE (a no-op update) is what lets this always RETURNING the row
 // whether it was just created or already existed, in one round trip, with
 // no read-then-write race — DO NOTHING can't return an existing row.

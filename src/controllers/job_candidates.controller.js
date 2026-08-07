@@ -175,11 +175,12 @@ export const respondToCandidate = asyncHandler(async (req, res) => {
     await candidatesRepo.updateStatus(client, candidate.id, "ACCEPTED");
     const assignedProject = await projectsRepo.assignWorker(client, project.id, candidate.worker_id, "ACCEPTED");
     const closedCandidates = await candidatesRepo.closeOthersForProject(client, project.id, candidate.id);
-    // The trust gate for the persistent (business, worker) chat thread — see
-    // chat_threads/threads.repository.js. Created here, inside the same
+    // The persistent (business, worker) chat thread — see
+    // chat_threads/threads.repository.js. This is the other of the two
+    // places a project ever gets a real worker_id (see createProject's
+    // direct-invite path for the first) — created here, inside the same
     // transaction as the acceptance itself, and reused for every future
-    // project between this same pair, exactly the moment the old per-project
-    // chat gate (mustBeParticipant) used to open a fresh conversation.
+    // project between this same pair.
     await threadsRepo.getOrCreateThread(project.business_id, candidate.worker_id, client);
 
     return { assignedProject, closedCandidates, candidate };

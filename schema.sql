@@ -479,11 +479,13 @@ CREATE TRIGGER trg_submissions_updated_at
 -- ─── 6b. chat_threads ───────────────────────────────────────────────────────
 -- One row per (business, worker) pair — a persistent conversation that
 -- spans every project they've ever done together, rather than a fresh chat
--- per project. Created lazily the first time a candidacy between the two is
--- accepted (job_candidates.controller.js's respondToCandidate) and reused
--- for every project after that — the same trust boundary the old per-project
--- gate had (no chat before a real acceptance), just remembered across
--- projects instead of reset every time. See migrations/031_chat_threads.sql.
+-- per project. Created lazily the moment a project between the two first
+-- gets a real worker_id — a direct invite (projects.controller.js's
+-- createProject) or an accepted open-post candidacy
+-- (job_candidates.controller.js's respondToCandidate) — mirroring
+-- messages.controller.js's mustBeParticipant, which has always allowed chat
+-- as soon as a real worker_id exists, not just after acceptance. Reused for
+-- every project after that. See migrations/031_chat_threads.sql.
 
 CREATE TABLE chat_threads (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),

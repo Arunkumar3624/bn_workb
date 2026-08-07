@@ -46,9 +46,9 @@ CREATE INDEX IF NOT EXISTS idx_blocked_attempts_thread_id ON blocked_message_att
 -- One chat_threads row per unique (business_id, worker_id) pair that has
 -- ever exchanged a message, then point every existing message/blocked
 -- attempt at it. Every project with messages already has a real worker_id —
--- chat is gated on acceptance (messages.controller.js's mustBeParticipant
--- requires a real participant, and only an ACCEPTED+ project has one) — so
--- this join is never against a NULL worker_id.
+-- messages.controller.js's mustBeParticipant requires a real participant,
+-- and only a project with a real worker_id ever has one — so this join is
+-- never against a NULL worker_id.
 
 INSERT INTO chat_threads (business_id, worker_id)
 SELECT DISTINCT p.business_id, p.worker_id

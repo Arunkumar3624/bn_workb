@@ -7,6 +7,7 @@ import * as transactionsRepo from "../repositories/transactions.repository.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as ledgerEventsRepo from "../repositories/ledger_events.repository.js";
 import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
+import * as threadsRepo from "../repositories/threads.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 import { calculateLevel } from "../utils/gamification.js";
 import { sendHiredSms } from "../services/sms.service.js";
@@ -130,6 +131,14 @@ export const createProject = asyncHandler(async (req, res) => {
         console.error("[sms] sendHiredSms threw:", err)
       );
     }
+
+    // The trust gate for the persistent (business, worker) chat thread (see
+    // chat_threads/threads.repository.js) — this direct-invite path assigns
+    // a real worker_id from birth (status defaults to INVITED, not OPEN), so
+    // messages.controller.js's mustBeParticipant already allows chat before
+    // any acceptance. The thread has to exist just as early, or a fresh
+    // direct invite would be invisible to the merged Negotiations inbox.
+    await threadsRepo.getOrCreateThread(joined.business_id, joined.worker_id);
   }
 
   res.status(201).json({ data: project });
