@@ -504,6 +504,21 @@ export const moderateUser = asyncHandler(async (req, res) => {
       updated = await usersRepo.setActive(client, target.id, true);
       logAction = "SECURITY_USER_UNBANNED";
       logNotes = note || `Unbanned ${target.name} from Message Monitor.`;
+    } else if (action === "ban_chat") {
+      // The Dual-Ban Moderation Engine's softer tier — locks their chat
+      // composer (messages.controller.js's assertNotChatBanned) without
+      // touching login, submissions, or escrow payouts, so a business's
+      // funds never get trapped mid-project over a chat-only violation.
+      if (target.role === "admin") {
+        throw ApiError.badRequest("Admin accounts can't be chat-banned.");
+      }
+      updated = await usersRepo.setChatBanned(client, target.id, true);
+      logAction = "SECURITY_CHAT_BANNED";
+      logNotes = note || `Chat-banned ${target.name} from Message Monitor — deliverables and payouts are unaffected.`;
+    } else if (action === "unban_chat") {
+      updated = await usersRepo.setChatBanned(client, target.id, false);
+      logAction = "SECURITY_CHAT_UNBANNED";
+      logNotes = note || `Restored chat privileges for ${target.name}.`;
     } else if (action === "warn") {
       // A real, permanent message in the project's own chat — both sides
       // see it, and it stays in the transcript as proof they were told,
@@ -539,7 +554,7 @@ export const moderateUser = asyncHandler(async (req, res) => {
       logAction = "SECURITY_POINTS_DEDUCTED";
       logNotes = note || `Deducted ${amount} behavior score points from ${target.name}.`;
     } else {
-      throw ApiError.badRequest("action must be one of: ban, unban, warn, deduct_points.");
+      throw ApiError.badRequest("action must be one of: ban, unban, ban_chat, unban_chat, warn, deduct_points.");
     }
 
     await adminRepo.insertPlatformLog(client, {
@@ -598,6 +613,17 @@ export const moderateMessageSender = asyncHandler(async (req, res) => {
       updated = await usersRepo.setActive(client, target.id, true);
       logAction = "SECURITY_USER_UNBANNED";
       logNotes = `Unbanned ${target.name} from Message Monitor (message: "${message.body}")`;
+    } else if (action === "ban_chat") {
+      if (target.role === "admin") {
+        throw ApiError.badRequest("Admin accounts can't be chat-banned.");
+      }
+      updated = await usersRepo.setChatBanned(client, target.id, true);
+      logAction = "SECURITY_CHAT_BANNED";
+      logNotes = `Chat-banned ${target.name} from Message Monitor for: "${message.body}"`;
+    } else if (action === "unban_chat") {
+      updated = await usersRepo.setChatBanned(client, target.id, false);
+      logAction = "SECURITY_CHAT_UNBANNED";
+      logNotes = `Restored chat privileges for ${target.name} (message: "${message.body}")`;
     } else if (action === "warn") {
       logAction = "SECURITY_WARNING_SENT";
       logNotes = `Warned ${target.name} from Message Monitor for: "${message.body}"`;
@@ -613,7 +639,7 @@ export const moderateMessageSender = asyncHandler(async (req, res) => {
       logAction = "SECURITY_POINTS_DEDUCTED";
       logNotes = `Deducted ${amount} behavior score points from ${target.name} for: "${message.body}"`;
     } else {
-      throw ApiError.badRequest("action must be one of: ban, unban, warn, deduct_points.");
+      throw ApiError.badRequest("action must be one of: ban, unban, ban_chat, unban_chat, warn, deduct_points.");
     }
 
     await adminRepo.insertPlatformLog(client, {

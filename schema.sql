@@ -97,6 +97,13 @@ CREATE TABLE users (
   -- (auth.controller.js) and on every authenticated request (guard.js), so
   -- a ban actually stops someone, not just future logins.
   is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  -- The Dual-Ban Moderation Engine's softer sibling to is_active above — a
+  -- full ban (is_active = false) invalidates the session and blocks login
+  -- entirely, which traps a business's escrowed funds mid-project if the
+  -- real issue was only chat behavior. is_chat_banned only ever gates
+  -- sending a chat message (messages.controller.js's assertNotChatBanned);
+  -- it never touches login, submissions, or payouts. See migrations/032_chat_ban.sql.
+  is_chat_banned    BOOLEAN NOT NULL DEFAULT FALSE,
   behavior_score    SMALLINT,                       -- 0–1000 trust metric; workers/businesses only
   rating            NUMERIC(3, 2),                  -- cached avg of reviews.rating for this user
   reviews_count     INTEGER NOT NULL DEFAULT 0,
@@ -410,7 +417,9 @@ CREATE TYPE platform_log_action AS ENUM (
   'SECURITY_WARNING_SENT',
   'SECURITY_DISMISSED',
   'SECURITY_USER_UNBANNED',
-  'SECURITY_POINTS_DEDUCTED'
+  'SECURITY_POINTS_DEDUCTED',
+  'SECURITY_CHAT_BANNED',
+  'SECURITY_CHAT_UNBANNED'
 );
 
 CREATE TABLE platform_logs (

@@ -9,7 +9,26 @@ import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repositor
 import * as userBlocksRepo from "../repositories/user_blocks.repository.js";
 import * as notificationsRepo from "../repositories/notifications.repository.js";
 import * as threadsRepo from "../repositories/threads.repository.js";
+import * as usersRepo from "../repositories/users.repository.js";
 import { emitProjectEvent, emitThreadEvent } from "../realtime/events.js";
+
+const CHAT_BAN_MESSAGE =
+  "Your chat privileges have been temporarily suspended due to a policy violation. You can still submit active deliverables to receive payment.";
+
+// The Dual-Ban Moderation Engine's soft tier (migrations/032_chat_ban.sql)
+// — locks the composer for whichever side is chat-banned, without touching
+// login, submissions, or escrow payouts, so a business's funds never get
+// trapped mid-project over a chat-only violation. Admin senders (system
+// notices) bypass this, same as every other gate below — an admin's own
+// warning message is never subject to the ban it's enforcing. Read-only
+// routes (listMessages/listThreadMessages) never call this — a chat-banned
+// user can still see their own history, just not add to it.
+async function assertNotChatBanned(req) {
+  if (req.user.role === "admin") return;
+  if (await usersRepo.isChatBanned(req.user.id)) {
+    throw ApiError.forbidden(CHAT_BAN_MESSAGE);
+  }
+}
 
 async function mustBeParticipant(req, projectId) {
   const project = await projectsRepo.findById(projectId);
@@ -84,6 +103,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const project = await mustBeParticipant(req, req.params.id);
   const otherUserId = project.worker_id === req.user.id ? project.business_id : project.worker_id;
   await assertNotBlocked(req, otherUserId);
+  await assertNotChatBanned(req);
 
   const thread = project.worker_id
     ? await threadsRepo.getOrCreateThread(project.business_id, project.worker_id)
@@ -129,6 +149,7 @@ export const sendAttachmentMessage = asyncHandler(async (req, res) => {
   const project = await mustBeParticipant(req, req.params.id);
   const otherUserId = project.worker_id === req.user.id ? project.business_id : project.worker_id;
   await assertNotBlocked(req, otherUserId);
+  await assertNotChatBanned(req);
 
   const thread = project.worker_id
     ? await threadsRepo.getOrCreateThread(project.business_id, project.worker_id)
@@ -232,6 +253,7 @@ export const sendThreadMessage = asyncHandler(async (req, res) => {
   const thread = await mustBeThreadParticipant(req, req.params.id);
   const otherUserId = thread.worker_id === req.user.id ? thread.business_id : thread.worker_id;
   await assertNotBlocked(req, otherUserId);
+  await assertNotChatBanned(req);
 
   const { body } = req.body;
   if (containsContactInfo(body)) {
@@ -257,6 +279,7 @@ export const sendThreadAttachmentMessage = asyncHandler(async (req, res) => {
   const thread = await mustBeThreadParticipant(req, req.params.id);
   const otherUserId = thread.worker_id === req.user.id ? thread.business_id : thread.worker_id;
   await assertNotBlocked(req, otherUserId);
+  await assertNotChatBanned(req);
 
   const { type, url, imageData, caption, projectId } = req.body;
   const project = await projectsRepo.findById(projectId);

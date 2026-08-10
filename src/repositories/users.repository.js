@@ -41,6 +41,15 @@ export async function isActive(id) {
   return rows[0]?.is_active ?? false;
 }
 
+// Same lightweight shape as isActive above — only checked at chat-send time
+// (messages.controller.js's assertNotChatBanned), never on every request the
+// way isActive is via guard.js, since a chat ban only ever matters when
+// actually trying to send a message.
+export async function isChatBanned(id) {
+  const { rows } = await query(`SELECT is_chat_banned FROM users WHERE id = $1`, [id]);
+  return rows[0]?.is_chat_banned ?? false;
+}
+
 // Security Monitor's "Ban User"/"Unban User" actions (admin.controller.js's
 // resolveBlockedAttempt and moderateMessageSender) — the only writer of
 // this column.
@@ -48,6 +57,20 @@ export async function setActive(client, id, active) {
   const { rows } = await client.query(
     `UPDATE users SET is_active = $2 WHERE id = $1 RETURNING *`,
     [id, active]
+  );
+  return rows[0] ?? null;
+}
+
+// The Dual-Ban Moderation Engine's "Ban Chat"/"Unban Chat" actions
+// (admin.controller.js's moderateUser/moderateMessageSender) — the softer
+// sibling to setActive above. Only ever read by
+// messages.controller.js's assertNotChatBanned, never by guard.js — unlike
+// is_active, this doesn't need checking on every request, only when
+// actually trying to send a chat message.
+export async function setChatBanned(client, id, banned) {
+  const { rows } = await client.query(
+    `UPDATE users SET is_chat_banned = $2 WHERE id = $1 RETURNING *`,
+    [id, banned]
   );
   return rows[0] ?? null;
 }
