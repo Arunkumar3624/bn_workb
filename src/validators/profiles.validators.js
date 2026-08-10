@@ -5,6 +5,14 @@ export const listProfilesQuerySchema = z.object({
   role: z.enum(["worker", "business"]),
 });
 
+// GET /api/profiles/:id — a malformed id (a stray "me", a bot probing
+// random paths) used to reach findPublicProfileById unchecked and crash on
+// Postgres's own uuid parser (error code 22P02), surfacing as a raw 500
+// instead of a clean 400.
+export const profileIdParamSchema = z.object({
+  id: z.string().uuid("Not a valid profile ID."),
+});
+
 // null unpins; any other value must be a real MILESTONES level — the
 // controller additionally checks it against the caller's own current_level
 // (a schema can't see DB state), so this only rules out garbage input.
