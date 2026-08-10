@@ -1,7 +1,7 @@
 // backend/scripts/set-company-name.js
 // One-off: sets profile.companyName for a real, already-existing business
 // account — the same field BusinessCompany.jsx's Edit Profile form now
-// saves for real. Running this is equivalent to opening Company Page ->
+// saves for real. Running this is equivalent to opening Company Profile ->
 // Edit Profile -> typing the name in yourself; this just does it directly.
 //
 // Run from the backend/ directory so dotenv/config picks up backend/.env:
@@ -25,7 +25,7 @@ async function main() {
   });
 
   console.log(`Set companyName = "${COMPANY_NAME}" for ${BUSINESS_EMAIL}.`);
-  console.log("Reload Company Page / Post a Job / Find Workers — all three now show this name consistently.");
+  console.log("Reload Company Profile / Post a Job / Find Workers — all three now show this name consistently.");
 }
 
 main()
