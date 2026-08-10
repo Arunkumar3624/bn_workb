@@ -104,6 +104,17 @@ CREATE TABLE users (
   -- sending a chat message (messages.controller.js's assertNotChatBanned);
   -- it never touches login, submissions, or payouts. See migrations/032_chat_ban.sql.
   is_chat_banned    BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Real, server-persisted Onboarding Wizard completion flag — not a
+  -- localStorage-only flag, so it doesn't reappear on a different device.
+  -- See migrations/033_onboarding.sql.
+  has_completed_onboarding BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Minimal real Support-tier RBAC — meaningless for worker/business rows,
+  -- only ever checked when role = 'admin'. Defaults TRUE so every admin
+  -- account keeps the full access it already had; a super admin dials an
+  -- individual admin's rights back via Team Access. See
+  -- migrations/034_admin_permissions.sql.
+  can_ban_users     BOOLEAN NOT NULL DEFAULT TRUE,
+  can_release_funds BOOLEAN NOT NULL DEFAULT TRUE,
   behavior_score    SMALLINT,                       -- 0–1000 trust metric; workers/businesses only
   rating            NUMERIC(3, 2),                  -- cached avg of reviews.rating for this user
   reviews_count     INTEGER NOT NULL DEFAULT 0,
@@ -419,7 +430,8 @@ CREATE TYPE platform_log_action AS ENUM (
   'SECURITY_USER_UNBANNED',
   'SECURITY_POINTS_DEDUCTED',
   'SECURITY_CHAT_BANNED',
-  'SECURITY_CHAT_UNBANNED'
+  'SECURITY_CHAT_UNBANNED',
+  'PERMISSIONS_UPDATED'
 );
 
 CREATE TABLE platform_logs (

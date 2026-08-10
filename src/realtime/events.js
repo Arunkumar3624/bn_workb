@@ -46,6 +46,27 @@ function workerNegotiationUrl(projectId) {
   return projectId ? `/worker/negotiations?invite=${projectId}` : "/worker/negotiations";
 }
 
+// Every business notification used to resolve to the bare BUSINESS_DASHBOARD_URL
+// regardless of event type — clicking one while already sitting on Overview
+// (BusinessDashboard.jsx's default tab) did nothing, since navigate("/business")
+// to the page you're already on doesn't change tab state. BusinessDashboard.jsx
+// reads ?tab= on mount (same convention as EconomyHub.jsx/WorkerWallet.jsx) so
+// this can route to the actual relevant tab instead.
+function businessDashboardUrl(tab) {
+  return tab ? `/business?tab=${tab}` : BUSINESS_DASHBOARD_URL;
+}
+
+const BUSINESS_TAB_BY_EVENT = {
+  PROJECT_CREATED: "projects",
+  MESSAGE_CREATED: "negotiations",
+  STATUS_CHANGED: "projects",
+  CANDIDATE_ACCEPTED: "projects",
+  SUBMISSION_CREATED: "projects",
+  SUBMISSION_REVIEWED: "projects",
+  COMPLETED: "projects",
+  REVIEW_SUBMITTED: "projects",
+};
+
 // project_status values -> readable copy, kept local rather than importing
 // the frontend's PROJECT_STATUS_META (that file also carries UI-only tone/
 // icon data this doesn't need, and the backend shouldn't depend on
@@ -76,7 +97,8 @@ function statusLabel(status) {
 // currently, but keeps this safe if one's ever added without updating here).
 function buildProjectPushCopy(type, payload, project, role) {
   const title = project?.title ?? "your project";
-  const url = role === "worker" ? workerNegotiationUrl(project?.id) : BUSINESS_DASHBOARD_URL;
+  const url =
+    role === "worker" ? workerNegotiationUrl(project?.id) : businessDashboardUrl(BUSINESS_TAB_BY_EVENT[type]);
 
   switch (type) {
     case "PROJECT_CREATED":
@@ -105,6 +127,14 @@ function buildProjectPushCopy(type, payload, project, role) {
 // viewing that project). Socket emit no-ops if the socket server hasn't
 // been started (e.g. under a script/test that never calls initSocket) —
 // push still fires either way, see firePush above.
+//
+// payload.senderId (set by every event that has a real actor — a message,
+// a submission) is who this event is ABOUT, not just data — the actor
+// never gets their own push/notification for their own action ("You have a
+// new message" for the message you just sent makes no sense). This only
+// suppresses the push/persisted-notification for that one recipient; the
+// socket emit still reaches them, since their own other open tabs still
+// need the live update to refresh what they see.
 export function emitProjectEvent(project, type, payload = {}) {
   const io = getIO();
   const event = { type, projectId: project.id, ...payload };
@@ -116,14 +146,16 @@ export function emitProjectEvent(project, type, payload = {}) {
   }
 
   const notifType = notificationTypeFor(type);
-  if (project.worker_id) {
+  if (project.worker_id && project.worker_id !== payload.senderId) {
     const workerCopy = buildProjectPushCopy(type, payload, project, "worker");
     firePush(project.worker_id, workerCopy);
     fireNotification(project.worker_id, workerCopy, notifType);
   }
-  const businessCopy = buildProjectPushCopy(type, payload, project, "business");
-  firePush(project.business_id, businessCopy);
-  fireNotification(project.business_id, businessCopy, notifType);
+  if (project.business_id !== payload.senderId) {
+    const businessCopy = buildProjectPushCopy(type, payload, project, "business");
+    firePush(project.business_id, businessCopy);
+    fireNotification(project.business_id, businessCopy, notifType);
+  }
 }
 
 // Thread-side counterpart to emitProjectEvent, for the entity-wide chat
@@ -151,12 +183,16 @@ export function emitThreadEvent(thread, type, payload = {}) {
   }
 
   const notifType = notificationTypeFor(type);
-  const workerCopy = buildThreadPushCopy(type, "worker");
-  firePush(thread.worker_id, workerCopy);
-  fireNotification(thread.worker_id, workerCopy, notifType);
-  const businessCopy = buildThreadPushCopy(type, "business");
-  firePush(thread.business_id, businessCopy);
-  fireNotification(thread.business_id, businessCopy, notifType);
+  if (thread.worker_id !== payload.senderId) {
+    const workerCopy = buildThreadPushCopy(type, "worker");
+    firePush(thread.worker_id, workerCopy);
+    fireNotification(thread.worker_id, workerCopy, notifType);
+  }
+  if (thread.business_id !== payload.senderId) {
+    const businessCopy = buildThreadPushCopy(type, "business");
+    firePush(thread.business_id, businessCopy);
+    fireNotification(thread.business_id, businessCopy, notifType);
+  }
 }
 
 // The job board's candidate events (a new invite, "this job was filled by

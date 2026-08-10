@@ -278,6 +278,14 @@ export const completeProject = asyncHandler(async (req, res) => {
     if (req.user.role !== "admin") {
       throw ApiError.forbidden("Only WorkBridge staff can release secured funds.");
     }
+    // Minimal real Support-tier RBAC — req.user only carries { id, role }
+    // (see guard.js), so the acting admin's own current permission flag is
+    // fetched fresh here, same pattern as admin.controller.js's
+    // assertAdminPermission. See migrations/034_admin_permissions.sql.
+    const actingAdmin = await usersRepo.findById(req.user.id);
+    if (!actingAdmin || actingAdmin.can_release_funds === false) {
+      throw ApiError.forbidden("Your admin account doesn't have fund-release rights — ask a super admin to grant them from Team Access.");
+    }
     if (project.status !== "PENDING_RELEASE") {
       throw ApiError.badRequest(`Cannot complete a project in status ${project.status} — expected PENDING_RELEASE.`);
     }

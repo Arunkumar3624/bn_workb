@@ -24,8 +24,15 @@ export const listPublicProfiles = asyncHandler(async (req, res) => {
 // PATCH /api/profiles/me — behind `guard`. req.user.id only; there is no
 // :id param here, so a caller can never edit anyone else's profile.
 export const updateOwnProfile = asyncHandler(async (req, res) => {
-  const { avatarUrl, title, phone, name, profilePatch } = req.body;
-  const updated = await usersRepo.updateSelf(req.user.id, { avatarUrl, title, phone, name, profilePatch });
+  const { avatarUrl, title, phone, name, profilePatch, hasCompletedOnboarding } = req.body;
+  const updated = await usersRepo.updateSelf(req.user.id, {
+    avatarUrl,
+    title,
+    phone,
+    name,
+    profilePatch,
+    hasCompletedOnboarding,
+  });
   if (!updated) throw ApiError.notFound("User not found.");
   const { password_hash, ...safe } = updated;
   res.json({ data: safe });

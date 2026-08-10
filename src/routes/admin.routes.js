@@ -22,6 +22,7 @@ import {
   listMonitoredBusinesses,
   listWorkersForBusiness,
   moderateUser,
+  updateAdminPermissions,
 } from "../controllers/admin.controller.js";
 import { listPendingSubmissions, listReviewedSubmissions, reviewSubmission } from "../controllers/submissions.controller.js";
 import { reviewSubmissionSchema } from "../validators/submissions.validators.js";
@@ -65,6 +66,9 @@ adminRouter.patch("/messages/:id/moderate", moderateMessageSender);
 adminRouter.get("/messages/businesses", listMonitoredBusinesses);
 adminRouter.get("/messages/businesses/:businessId/workers", listWorkersForBusiness);
 adminRouter.patch("/users/:id/moderate", moderateUser);
+// Minimal real Support-tier RBAC — a full admin (both flags still true)
+// dials another admin's own account down to a restricted subset.
+adminRouter.patch("/users/:id/permissions", updateAdminPermissions);
 
 // The Trust Checker's moderation queue.
 adminRouter.get("/submissions", listPendingSubmissions);

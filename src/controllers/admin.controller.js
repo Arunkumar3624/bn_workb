@@ -21,6 +21,18 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+// req.user only ever carries { id, role } (see guard.js) — the acting
+// admin's own permission flags aren't on the JWT, so this fetches their
+// current row fresh on every gated action, the same pattern as messages
+// .controller.js's assertNotChatBanned. Fails closed: a missing/deleted
+// admin row is treated as no permission, not skipped.
+async function assertAdminPermission(req, column, message) {
+  const actingAdmin = await usersRepo.findById(req.user.id);
+  if (!actingAdmin || actingAdmin[column] === false) {
+    throw ApiError.forbidden(message);
+  }
+}
+
 // ─── Verification Center ─────────────────────────────────────────────────────
 
 // GET /api/admin/verify
@@ -44,10 +56,10 @@ export const listAllUsers = asyncHandler(async (_req, res) => {
 // issued JWT carries impersonatorId (see guard.js's verifyAccessToken),
 // which (a) makes every subsequent API call during the session
 // distinguishable from a real login in logs/metrics, and (b) is what
-// blockDuringImpersonation checks to wall off irreversible actions
-// (password change, deactivation, withdrawals) for the rest of this
-// session. Deliberately short-lived (30 min, vs. the normal 7-day
-// session) — a hard backstop even if nobody clicks "End Session."
+// guard.js checks on every single request to block any non-GET action for
+// the rest of this session — see what they see, never act on their behalf.
+// Deliberately short-lived (30 min, vs. the normal 7-day session) — a hard
+// backstop even if nobody clicks "End Session."
 export const impersonateUser = asyncHandler(async (req, res) => {
   const { targetUserId } = req.body ?? {};
   if (!targetUserId) throw ApiError.badRequest("targetUserId is required.");
@@ -486,6 +498,10 @@ export const moderateUser = asyncHandler(async (req, res) => {
   const target = await usersRepo.findById(id);
   if (!target) throw ApiError.notFound("User not found.");
 
+  if (action === "ban" || action === "unban" || action === "ban_chat" || action === "unban_chat") {
+    await assertAdminPermission(req, "can_ban_users", "Your admin account doesn't have ban rights — ask a super admin to grant them from Team Access.");
+  }
+
   let logAction;
   let logNotes;
   let noticeMessage = null;
@@ -581,6 +597,46 @@ export const moderateUser = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+// PATCH /api/admin/users/:id/permissions — a full admin (one whose own
+// can_ban_users and can_release_funds are both still true) dials another
+// admin's account down to a Support-tier subset, or restores it. This is
+// the real backend behind the Team Access "Ban Users"/"Force Release
+// Escrow" toggles — previously that whole screen was local mock state (see
+// AdminTeamTab.jsx) with nothing behind it.
+// body: { canBanUsers?: boolean, canReleaseFunds?: boolean }
+export const updateAdminPermissions = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { canBanUsers, canReleaseFunds } = req.body ?? {};
+
+  const actingAdmin = await usersRepo.findById(req.user.id);
+  if (!actingAdmin || actingAdmin.can_ban_users === false || actingAdmin.can_release_funds === false) {
+    throw ApiError.forbidden("Only a full admin account can manage another admin's permissions.");
+  }
+
+  const target = await usersRepo.findById(id);
+  if (!target) throw ApiError.notFound("User not found.");
+  if (target.role !== "admin") {
+    throw ApiError.badRequest("Permissions only apply to admin accounts.");
+  }
+  if (target.id === req.user.id) {
+    throw ApiError.badRequest("You can't change your own permissions.");
+  }
+
+  const result = await transaction(async (client) => {
+    const updated = await usersRepo.setAdminPermissions(client, target.id, { canBanUsers, canReleaseFunds });
+    await adminRepo.insertPlatformLog(client, {
+      adminId: req.user.id,
+      action: "PERMISSIONS_UPDATED",
+      targetUserId: target.id,
+      targetProjectId: null,
+      notes: `Updated permissions for ${target.name} — can_ban_users: ${updated.can_ban_users}, can_release_funds: ${updated.can_release_funds}.`,
+    });
+    return updated;
+  });
+
+  res.json({ data: result });
+});
+
 // PATCH /api/admin/messages/:id/moderate — Message Monitor's manual
 // counterpart to blocked-attempts' resolution actions: support found a real
 // contact-info share (or other bad behavior) that evaded the auto-filter
@@ -595,6 +651,10 @@ export const moderateMessageSender = asyncHandler(async (req, res) => {
 
   const target = await usersRepo.findById(message.sender_id);
   if (!target) throw ApiError.notFound("Sender not found.");
+
+  if (action === "ban" || action === "unban") {
+    await assertAdminPermission(req, "can_ban_users", "Your admin account doesn't have ban rights — ask a super admin to grant them from Team Access.");
+  }
 
   let logAction;
   let logNotes;
@@ -670,6 +730,10 @@ export const resolveBlockedAttempt = asyncHandler(async (req, res) => {
   if (!attempt) throw ApiError.notFound("Blocked attempt not found.");
   if (attempt.status !== "PENDING") {
     throw ApiError.badRequest(`This was already resolved (${attempt.status}).`);
+  }
+
+  if (action === "ban") {
+    await assertAdminPermission(req, "can_ban_users", "Your admin account doesn't have ban rights — ask a super admin to grant them from Team Access.");
   }
 
   let sentMessage = null;

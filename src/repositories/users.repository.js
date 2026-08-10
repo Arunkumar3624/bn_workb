@@ -75,6 +75,21 @@ export async function setChatBanned(client, id, banned) {
   return rows[0] ?? null;
 }
 
+// Minimal real Support-tier RBAC (see migrations/034_admin_permissions.sql)
+// — a partial update so passing only one flag leaves the other untouched;
+// admin.controller.js's updateAdminPermissions is the only writer.
+export async function setAdminPermissions(client, id, { canBanUsers, canReleaseFunds }) {
+  const { rows } = await client.query(
+    `UPDATE users
+     SET can_ban_users = COALESCE($2, can_ban_users),
+         can_release_funds = COALESCE($3, can_release_funds)
+     WHERE id = $1
+     RETURNING id, name, role, can_ban_users, can_release_funds`,
+    [id, canBanUsers ?? null, canReleaseFunds ?? null]
+  );
+  return rows[0] ?? null;
+}
+
 // Message Monitor's "Deduct Points" action. behavior_score is nullable
 // (nobody writes it yet elsewhere), so an unset score is treated as a clean
 // 1000 — "full trust until proven otherwise" — the same semantic the 0-1000
@@ -141,7 +156,7 @@ export async function listPublicProfiles({ role }) {
 // default avatar"), or a URL string ("set it"). COALESCE can't tell the
 // first two apart since both arrive as SQL NULL, so avatarUrl's presence is
 // checked in JS and passed as a separate boolean flag instead.
-export async function updateSelf(id, { avatarUrl, title, phone, name, profilePatch }) {
+export async function updateSelf(id, { avatarUrl, title, phone, name, profilePatch, hasCompletedOnboarding }) {
   const avatarProvided = avatarUrl !== undefined;
   const { rows } = await query(
     `UPDATE users
@@ -149,10 +164,20 @@ export async function updateSelf(id, { avatarUrl, title, phone, name, profilePat
          title = COALESCE($4, title),
          phone = COALESCE($5, phone),
          name = COALESCE($6, name),
-         profile = profile || $7::jsonb
+         profile = profile || $7::jsonb,
+         has_completed_onboarding = COALESCE($8, has_completed_onboarding)
      WHERE id = $1
      RETURNING *`,
-    [id, avatarProvided, avatarUrl ?? null, title ?? null, phone ?? null, name ?? null, JSON.stringify(profilePatch ?? {})]
+    [
+      id,
+      avatarProvided,
+      avatarUrl ?? null,
+      title ?? null,
+      phone ?? null,
+      name ?? null,
+      JSON.stringify(profilePatch ?? {}),
+      hasCompletedOnboarding ?? null,
+    ]
   );
   return rows[0] ?? null;
 }

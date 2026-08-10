@@ -30,4 +30,7 @@ export const updateOwnProfileSchema = z.object({
   phone: z.string().regex(/^\d{10}$/, "Enter exactly 10 numeric digits").optional(),
   name: z.string().trim().min(1).max(120).optional(),
   profilePatch: z.record(z.string(), z.unknown()).optional(),
+  // The Onboarding Wizard's completion flag — only ever set to true, by the
+  // wizard's own final step (see OnboardingWizard.jsx).
+  hasCompletedOnboarding: z.boolean().optional(),
 });

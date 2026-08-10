@@ -21,7 +21,7 @@ export async function listPendingVerifications() {
 // vs verified (manual ID/payment review, see listPendingVerifications).
 export async function listAllUsers() {
   const { rows } = await query(
-    `SELECT id, name, email, phone, role, email_verified, verified, created_at
+    `SELECT id, name, email, phone, role, email_verified, verified, is_active, is_chat_banned, created_at
      FROM users
      ORDER BY created_at DESC`
   );

@@ -51,6 +51,21 @@ export const guard = asyncHandler(async (req, _res, next) => {
     throw ApiError.forbidden("This account has been suspended.");
   }
 
+  // Impersonation ("See what they see" — POST /api/admin/impersonate) is
+  // for support debugging, never for acting on someone's behalf. This used
+  // to be an opt-in middleware (blockDuringImpersonation) applied to just 3
+  // routes — a real gap, since block/unblock, raising a dispute, escrow
+  // funding, and everything else were left completely unprotected. Now it's
+  // the default for every guarded route: an impersonated session can GET
+  // anything (see exactly what the user sees) but can never write anything.
+  // Starting/ending impersonation itself is unaffected — POST
+  // /api/admin/impersonate is called by the real admin's own (not yet
+  // impersonated) session, and ending it is a pure client-side token swap
+  // with no API call at all (see AuthContext.jsx's endImpersonation).
+  if (req.user.impersonatorId && req.method !== "GET" && req.method !== "HEAD") {
+    throw ApiError.forbidden("This action isn't available during an impersonated session — you can look, but not act on this account's behalf.");
+  }
+
   next();
 });
 
@@ -67,19 +82,6 @@ export function requireRole(...allowedRoles) {
     next();
   };
 }
-
-// Applied to routes an impersonated session must never be able to reach —
-// changing the target's password, deactivating their account, or moving
-// real money out via a withdrawal request. "See what they see" for support
-// debugging should never also extend to "act destructively on their
-// behalf," especially if an admin account were ever compromised — this is
-// a hard server-side wall, not a UI-only hint.
-export const blockDuringImpersonation = asyncHandler(async (req, _res, next) => {
-  if (req.user?.impersonatorId) {
-    throw ApiError.forbidden("This action isn't available during an impersonated session.");
-  }
-  next();
-});
 
 function mustGetJwtSecret() {
   const secret = process.env.JWT_SECRET;

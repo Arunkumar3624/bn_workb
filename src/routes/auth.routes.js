@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { guard, blockDuringImpersonation } from "../middleware/guard.js";
+import { guard } from "../middleware/guard.js";
 import { validate } from "../middleware/validate.js";
 import {
   registerSchema,
@@ -44,9 +44,8 @@ authRouter.get("/me", guard, me);
 
 // Settings page — Security & Auth (change password) and Danger Zone
 // (self-deactivation). Both require a valid session, unlike the
-// forgot/reset-password pair above. blockDuringImpersonation: an admin
-// impersonating this account for support debugging must never be able to
-// change the real owner's password or deactivate their account — see
-// guard.js's own comment.
-authRouter.post("/change-password", guard, blockDuringImpersonation, validate(changePasswordSchema), changePassword);
-authRouter.patch("/deactivate-self", guard, blockDuringImpersonation, validate(deactivateSelfSchema), deactivateSelf);
+// forgot/reset-password pair above. An impersonated session can't reach
+// these anyway — guard.js now blocks every non-GET request while
+// impersonating, not just these two.
+authRouter.post("/change-password", guard, validate(changePasswordSchema), changePassword);
+authRouter.patch("/deactivate-self", guard, validate(deactivateSelfSchema), deactivateSelf);
