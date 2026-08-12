@@ -97,13 +97,20 @@ export async function list({ businessId, workerId, status, page, pageSize, viewe
   // JOIN — an OPEN post (worker_id NULL) must still show up in the
   // business's own project list, just with worker_name null.
   const { rows } = await query(
-    `SELECT p.*, w.name AS worker_name,
+    `SELECT p.*, w.name AS worker_name, w.avatar_url AS worker_avatar_url,
             COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
+            b.avatar_url AS business_avatar_url,
             (SELECT count(*)::int FROM submissions s
              WHERE s.project_id = p.id
                AND s.status = 'APPROVED'
                AND s.submitted_by IS DISTINCT FROM $${viewerParamIndex}
-            ) AS new_deliverables_count
+            ) AS new_deliverables_count,
+            (SELECT s.type FROM submissions s
+             WHERE s.project_id = p.id
+               AND s.status = 'APPROVED'
+             ORDER BY s.created_at DESC
+             LIMIT 1
+            ) AS latest_deliverable_type
      FROM projects p
      LEFT JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
