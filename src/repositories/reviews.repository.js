@@ -41,7 +41,7 @@ export async function update({ projectId, reviewerId, rating, feedback }) {
 // Joined to public_user_profiles for the reviewer's display name.
 export async function listForReviewee(revieweeId) {
   const { rows } = await query(
-    `SELECT r.*, p.name AS reviewer_name
+    `SELECT r.*, p.name AS reviewer_name, p.avatar_url AS reviewer_avatar_url
      FROM reviews r
      JOIN public_user_profiles p ON p.id = r.reviewer_id
      WHERE r.reviewee_id = $1
