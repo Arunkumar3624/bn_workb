@@ -64,7 +64,8 @@ export async function listForProject(projectId) {
 export async function listForWorker(workerId) {
   const { rows } = await query(
     `SELECT c.*, p.title AS project_title, p.budget, p.description, p.status AS project_status,
-            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
+            b.avatar_url AS business_avatar_url
      FROM job_candidates c
      JOIN projects p ON p.id = c.project_id
      JOIN public_user_profiles b ON b.id = p.business_id

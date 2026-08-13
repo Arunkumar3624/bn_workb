@@ -49,6 +49,21 @@ export const createReview = asyncHandler(async (req, res) => {
   res.status(201).json({ data: review });
 });
 
+// PATCH /api/reviews/:projectId — edits the caller's own already-submitted
+// review for this project. Unlike createReview, this is expected to be
+// called repeatedly (a reviewer changing their mind), so there's no
+// conflict check — it just requires a review to already exist.
+export const updateReview = asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const { rating, feedback } = req.body;
+
+  const existing = await reviewsRepo.findByProjectAndReviewer(projectId, req.user.id);
+  if (!existing) throw ApiError.notFound("You haven't reviewed this project yet.");
+
+  const review = await reviewsRepo.update({ projectId, reviewerId: req.user.id, rating, feedback });
+  res.json({ data: review });
+});
+
 // GET /api/reviews?revieweeId= — public list of reviews a user has
 // received (same trust-signal category as public_user_profiles.rating).
 export const listReviews = asyncHandler(async (req, res) => {

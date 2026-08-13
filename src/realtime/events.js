@@ -255,7 +255,10 @@ export function emitSupportMessage(thread, payload = {}) {
     io.to(adminRoom()).emit("project:event", event);
   }
 
-  const supportCopy = { title: "Support reply", body: "You have a new message from WorkBridge Support.", url: "/" };
+  // No `url` — Settings' Support tab is where a reply is actually read, and
+  // there's no dedicated route to deep-link to yet, so this notification is
+  // informational only rather than sending the user to the home page.
+  const supportCopy = { title: "Support reply", body: "You have a new message from WorkBridge Support." };
   firePush(thread.user_id, supportCopy);
   fireNotification(thread.user_id, supportCopy, "SYSTEM");
 }

@@ -21,6 +21,20 @@ export async function findByProjectAndReviewer(projectId, reviewerId) {
   return rows[0] ?? null;
 }
 
+// Edits an already-submitted review in place — the reviewer can change
+// their mind about a rating as many times as they want, not just once.
+// Scoped to (project_id, reviewer_id) so a caller can only ever update
+// their own review, same ownership boundary as create's revieweeId rule.
+export async function update({ projectId, reviewerId, rating, feedback }) {
+  const { rows } = await query(
+    `UPDATE reviews SET rating = $1, feedback = $2
+     WHERE project_id = $3 AND reviewer_id = $4
+     RETURNING *`,
+    [rating, feedback ?? null, projectId, reviewerId]
+  );
+  return rows[0] ?? null;
+}
+
 // Reviews a user has RECEIVED — the trust-page use case (WorkerProfile.jsx's
 // reviews section), same "public trust signal" category as
 // public_user_profiles.rating/reviews_count, so this is a public read too.
