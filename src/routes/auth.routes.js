@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { guard } from "../middleware/guard.js";
 import { validate } from "../middleware/validate.js";
+import { authLimiter } from "../middleware/rateLimit.js";
 import {
   registerSchema,
   loginSchema,
@@ -26,6 +27,15 @@ import {
 } from "../controllers/auth.controller.js";
 
 export const authRouter = Router();
+
+// authLimiter — the real credential/OTP-guessing surface. Tight enough to
+// actually stop brute-forcing a password or a 6-digit OTP, loose enough
+// that a real user fumbling their password a few times never hits it.
+// Not applied to /google or /me — those aren't guessable-secret endpoints.
+authRouter.use(
+  ["/register", "/verify-otp", "/resend-otp", "/login", "/forgot-password", "/reset-password"],
+  authLimiter
+);
 
 // OTP only ever happens once, at registration, to verify the email address —
 // sign-in is password-only (see login()'s email_verified guard).

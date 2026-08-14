@@ -1,9 +1,19 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { apiRouter } from "./routes/index.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+import { apiLimiter } from "./middleware/rateLimit.js";
 
 export const app = express();
+
+// Standard security headers (HSTS, X-Content-Type-Options, X-Frame-Options,
+// etc.). crossOriginResourcePolicy relaxed to "cross-origin" — this API is
+// deliberately served from a different origin than the frontend (see
+// allowedOrigins below); helmet's stricter same-origin default is meant for
+// a server that also renders its own HTML, which this one never does.
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(apiLimiter);
 
 // Every route here is dynamic, per-user, and behind Bearer auth — none of it
 // should ever be browser-cached. Express's default `res.json()` auto-

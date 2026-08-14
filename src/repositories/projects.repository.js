@@ -157,7 +157,13 @@ export async function listOpen(viewerLevel = 0) {
          OR $1 >= (SELECT level_threshold FROM gamification_config WHERE tier_name = 'Silver')
          OR p.created_at <= now() - interval '3 hours'
        )
-     ORDER BY p.is_urgent DESC, (flash_post_expires_at IS NOT NULL) DESC, p.created_at DESC
+     ORDER BY p.is_urgent DESC,
+       EXISTS (
+         SELECT 1 FROM perk_purchases pp
+         WHERE pp.perk_id = 'flash-post' AND pp.target_id = p.id
+           AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+       ) DESC,
+       p.created_at DESC
      LIMIT 100`,
     [viewerLevel]
   );

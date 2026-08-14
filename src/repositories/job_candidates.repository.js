@@ -57,7 +57,13 @@ export async function listForProject(projectId) {
      FROM job_candidates c
      JOIN users w ON w.id = c.worker_id
      WHERE c.project_id = $1
-     ORDER BY (gold_highlight_expires_at IS NOT NULL) DESC, c.created_at DESC`,
+     ORDER BY
+       EXISTS (
+         SELECT 1 FROM perk_purchases pp
+         WHERE pp.perk_id = 'gold-highlight' AND pp.target_id = c.id
+           AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+       ) DESC,
+       c.created_at DESC`,
     [projectId]
   );
   return rows;
