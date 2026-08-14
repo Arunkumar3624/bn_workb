@@ -30,6 +30,19 @@ function fireNotification(userId, copy, type) {
     .catch((err) => console.error("[notifications] create threw:", err));
 }
 
+// Real effect of the "Enterprise Broadcast" perk (projects.controller.js's
+// broadcastProject) — the same real push + in-app notification primitives
+// every other event on this platform uses, just fanned out to a list of
+// worker ids instead of one participant. Each send is still independently
+// fire-and-forget (see firePush/fireNotification's own comments) so one
+// failed delivery in the batch never blocks the rest.
+export function emitBroadcast(userIds, copy) {
+  for (const userId of userIds) {
+    firePush(userId, copy);
+    fireNotification(userId, copy, "SYSTEM");
+  }
+}
+
 // Coarse bucket per event type, matching the three the notifications table
 // documents — not meant to be exhaustive UI taxonomy, just enough to color
 // or filter the drawer by later if that's ever wanted.

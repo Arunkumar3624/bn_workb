@@ -11,6 +11,7 @@ import * as messagesRepo from "../repositories/messages.repository.js";
 import * as blockedAttemptsRepo from "../repositories/blocked_attempts.repository.js";
 import * as withdrawalRequestsRepo from "../repositories/withdrawal_requests.repository.js";
 import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
+import * as profileAuditRepo from "../repositories/profile_audit_requests.repository.js";
 import * as threadsRepo from "../repositories/threads.repository.js";
 import { emitProjectEvent } from "../realtime/events.js";
 import { sendEscrowFundedSms } from "../services/sms.service.js";
@@ -446,6 +447,37 @@ export const resolveEscrowFunding = asyncHandler(async (req, res) => {
       }).catch((err) => console.error("[sms] sendEscrowFundedSms threw:", err));
     }
   }
+
+  res.json({ data: result });
+});
+
+// ─── Profile Audits ─────────────────────────────────────────────────────────
+// The real queue behind a worker's "Skill Bridge Profile Audit" perk
+// purchase (see perks.controller.js's purchasePerk) — same "self-reported
+// request, real WorkBridge action grants it" shape as Escrow Funding /
+// Withdrawals above, except the real outcome is a written review, not an
+// approve/reject decision.
+export const listPendingAudits = asyncHandler(async (_req, res) => {
+  const data = await profileAuditRepo.listPending();
+  res.json({ data });
+});
+
+// PATCH /api/admin/audits/:id — body: { note: string }
+export const resolveAudit = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { note } = req.body ?? {};
+  if (!note || !note.trim()) {
+    throw ApiError.badRequest("A written note is required to resolve an audit request.");
+  }
+
+  const result = await transaction(async (client) => {
+    const request = await profileAuditRepo.findByIdForUpdate(client, id);
+    if (!request) throw ApiError.notFound("Audit request not found.");
+    if (request.status !== "PENDING") {
+      throw ApiError.badRequest(`Cannot resolve an audit request in status ${request.status} — expected PENDING.`);
+    }
+    return profileAuditRepo.markReviewed(client, id, { adminNote: note.trim(), resolvedBy: req.user.id });
+  });
 
   res.json({ data: result });
 });

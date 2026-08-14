@@ -8,7 +8,8 @@ import * as usersRepo from "../repositories/users.repository.js";
 import * as ledgerEventsRepo from "../repositories/ledger_events.repository.js";
 import * as escrowFundingRepo from "../repositories/escrow_funding_requests.repository.js";
 import * as threadsRepo from "../repositories/threads.repository.js";
-import { emitProjectEvent } from "../realtime/events.js";
+import * as perkPurchasesRepo from "../repositories/perk_purchases.repository.js";
+import { emitProjectEvent, emitBroadcast } from "../realtime/events.js";
 import { calculateLevel } from "../utils/gamification.js";
 import { sendHiredSms } from "../services/sms.service.js";
 
@@ -70,6 +71,75 @@ export const listOpenProjects = asyncHandler(async (req, res) => {
   const viewer = await usersRepo.findById(req.user.id);
   const projects = await projectsRepo.listOpen(viewer?.current_level ?? 0);
   res.json({ data: projects });
+});
+
+// GET /api/projects/featured-employers — the real effect of the "Featured
+// Employer Spotlight" perk: businesses with an active, unconsumed purchase,
+// scoped to their currently-open posts. Sits next to listOpenProjects since
+// it feeds the same Job Board page.
+export const listFeaturedEmployers = asyncHandler(async (_req, res) => {
+  const employers = await usersRepo.listFeaturedEmployers();
+  res.json({ data: employers });
+});
+
+// GET /api/projects/:id/shortlist — real effect of the "AI Shortlist"
+// perk. "AI" here is a real, deterministic ranking (skill overlap between
+// the post's required_skills and each worker's profile.skills, rating as
+// the tiebreak), not a fabricated result — same "real data, simple honest
+// algorithm" boundary as everywhere else on this platform. Requires an
+// active, unconsumed purchase targeting this exact project; the single-use
+// tier is spent the moment the shortlist is actually generated.
+export const getProjectShortlist = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const project = await projectsRepo.findById(id);
+  if (!project) throw ApiError.notFound("Project not found.");
+  if (project.business_id !== req.user.id) throw ApiError.forbidden("Not your job post.");
+
+  const purchase = await perkPurchasesRepo.findActive(req.user.id, "ai-shortlist", { targetId: id });
+  if (!purchase) throw ApiError.badRequest("Purchase AI Shortlist for this job post first.");
+
+  const workers = await usersRepo.listPublicProfiles({ role: "worker" });
+  const requiredSkills = (project.required_skills ?? []).map((s) => s.toLowerCase());
+  const shortlist = workers
+    .map((w) => {
+      const workerSkills = (w.profile?.skills ?? []).map((s) => String(s).toLowerCase());
+      const matchScore = requiredSkills.filter((s) => workerSkills.includes(s)).length;
+      return { ...w, matchScore };
+    })
+    .sort((a, b) => b.matchScore - a.matchScore || (b.rating ?? 0) - (a.rating ?? 0))
+    .slice(0, 3);
+
+  if (purchase.tier_id === "single-use") {
+    await transaction((client) => perkPurchasesRepo.consume(client, purchase.id));
+  }
+
+  res.json({ data: shortlist });
+});
+
+// POST /api/projects/:id/broadcast — real effect of the "Enterprise
+// Broadcast" perk: a real push + in-app notification (emitBroadcast) sent
+// to the platform's top-rated workers, pointing at this exact job post.
+// One-time — always consumed once it actually sends.
+export const broadcastProject = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const project = await projectsRepo.findById(id);
+  if (!project) throw ApiError.notFound("Project not found.");
+  if (project.business_id !== req.user.id) throw ApiError.forbidden("Not your job post.");
+  if (project.status !== "OPEN") throw ApiError.badRequest("This job post is no longer open.");
+
+  const purchase = await perkPurchasesRepo.findActive(req.user.id, "enterprise-broadcast", { targetId: id });
+  if (!purchase) throw ApiError.badRequest("Purchase Enterprise Broadcast for this job post first.");
+
+  const workers = await usersRepo.listPublicProfiles({ role: "worker" });
+  const recipients = workers.slice(0, 25);
+  emitBroadcast(
+    recipients.map((w) => w.id),
+    { title: "New job matching top talent", body: `${project.title} was just broadcast to you — check it out on the Job Feed.`, url: "/worker" }
+  );
+
+  await transaction((client) => perkPurchasesRepo.consume(client, purchase.id));
+
+  res.json({ data: { notified: recipients.length } });
 });
 
 // applicationWindow is now a plain number of days the business chose on
@@ -421,6 +491,25 @@ export const completeProject = asyncHandler(async (req, res) => {
 // has actually passed and the worker never reached FILES_SUBMITTED.
 export const cancelAndRefund = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
+  // Real effect of the worker's "Momentum Shield" perk — an active,
+  // unconsumed shield on THIS project blocks the Ghosting Failsafe once.
+  // Its own short transaction (separate from the refund transaction below)
+  // so consuming the shield actually commits even though the request that
+  // triggered it gets rejected — this is the real enforcement boundary, not
+  // just the button being hidden client-side (see WorkerTokenShop.jsx /
+  // BusinessProjects.jsx).
+  const shieldConsumed = await transaction(async (client) => {
+    const project = await projectsRepo.findByIdForUpdate(client, id);
+    if (!project) return false;
+    const shield = await perkPurchasesRepo.findActive(project.worker_id, "momentum-shield", { targetId: id, client });
+    if (!shield) return false;
+    await perkPurchasesRepo.consume(client, shield.id);
+    return true;
+  });
+  if (shieldConsumed) {
+    throw ApiError.forbidden("This project is protected by the worker's Momentum Shield — it can't be cancelled right now.");
+  }
 
   const result = await transaction(async (client) => {
     const project = await projectsRepo.findByIdForUpdate(client, id);

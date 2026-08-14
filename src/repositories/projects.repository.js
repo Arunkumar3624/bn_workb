@@ -110,7 +110,12 @@ export async function list({ businessId, workerId, status, page, pageSize, viewe
                AND s.status = 'APPROVED'
              ORDER BY s.created_at DESC
              LIMIT 1
-            ) AS latest_deliverable_type
+            ) AS latest_deliverable_type,
+            EXISTS (
+              SELECT 1 FROM perk_purchases pp
+              WHERE pp.perk_id = 'momentum-shield' AND pp.target_id = p.id
+                AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+            ) AS has_momentum_shield
      FROM projects p
      LEFT JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
@@ -138,7 +143,12 @@ export async function listOpen(viewerLevel = 0) {
             b.rating AS business_rating,
             (SELECT count(*)::int FROM job_candidates c
              WHERE c.project_id = p.id AND c.source = 'APPLICATION'
-            ) AS applicant_count
+            ) AS applicant_count,
+            EXISTS (
+              SELECT 1 FROM perk_purchases pp
+              WHERE pp.perk_id = 'flash-post' AND pp.target_id = p.id
+                AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+            ) AS has_flash_post
      FROM projects p
      JOIN public_user_profiles b ON b.id = p.business_id
      WHERE p.status = 'OPEN'
@@ -147,7 +157,7 @@ export async function listOpen(viewerLevel = 0) {
          OR $1 >= (SELECT level_threshold FROM gamification_config WHERE tier_name = 'Silver')
          OR p.created_at <= now() - interval '3 hours'
        )
-     ORDER BY p.is_urgent DESC, p.created_at DESC
+     ORDER BY p.is_urgent DESC, has_flash_post DESC, p.created_at DESC
      LIMIT 100`,
     [viewerLevel]
   );

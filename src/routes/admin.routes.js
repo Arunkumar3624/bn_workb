@@ -14,6 +14,8 @@ import {
   resolveWithdrawal,
   listPendingEscrowFunding,
   resolveEscrowFunding,
+  listPendingAudits,
+  resolveAudit,
   impersonateUser,
   listBlockedAttempts,
   resolveBlockedAttempt,
@@ -54,6 +56,10 @@ adminRouter.post("/withdrawals/:id/resolve", resolveWithdrawal);
 
 adminRouter.get("/escrow-funding", listPendingEscrowFunding);
 adminRouter.post("/escrow-funding/:id/resolve", resolveEscrowFunding);
+
+// Real queue behind the worker "Skill Bridge Profile Audit" perk.
+adminRouter.get("/audits", listPendingAudits);
+adminRouter.patch("/audits/:id/resolve", resolveAudit);
 
 // Security Monitor — blocked_message_attempts is the only record of a
 // contact-info send that got hard-blocked (see messages.controller.js).

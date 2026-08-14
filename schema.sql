@@ -740,18 +740,29 @@ ALTER TYPE platform_log_action ADD VALUE IF NOT EXISTS 'WITHDRAWAL_REJECTED';
 -- Token Shop "Purchase" into a real, Ledger-backed spend (see
 -- perks.controller.js). One row per redemption, with a resolved expiry for
 -- time-boxed tiers; null expires_at is a one-time/no-window perk.
+--
+-- migrations/035_perk_effects.sql added target_type/target_id (most perks
+-- boost a specific job post / application / dispute / withdrawal, not the
+-- whole account — an untyped reference resolved by perk_id in application
+-- code, same shape as ledger_events.event_type) and consumed_at (the "used"
+-- signal a one-time perk needs — expires_at IS NULL alone can't tell "still
+-- available" from "already used").
 CREATE TABLE perk_purchases (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  perk_id     TEXT NOT NULL,
-  tier_id     TEXT NOT NULL,
-  label       TEXT NOT NULL,
-  token_cost  INTEGER NOT NULL CHECK (token_cost > 0),
-  expires_at  TIMESTAMPTZ,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  perk_id      TEXT NOT NULL,
+  tier_id      TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  token_cost   INTEGER NOT NULL CHECK (token_cost > 0),
+  expires_at   TIMESTAMPTZ,
+  target_type  TEXT,
+  target_id    UUID,
+  consumed_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_perk_purchases_user_id_created_at ON perk_purchases (user_id, created_at DESC);
+CREATE INDEX idx_perk_purchases_target ON perk_purchases (perk_id, target_id) WHERE target_id IS NOT NULL;
 
 -- migrations/022_escrow_funding.sql — closes a real gap: ACCEPTED ->
 -- FUNDS_SECURED used to be an instant, unverified status flip (see
@@ -815,6 +826,27 @@ CREATE TABLE notifications (
 );
 
 CREATE INDEX idx_notifications_user_id_created_at ON notifications (user_id, created_at DESC);
+
+-- migrations/035_perk_effects.sql — Skill Bridge Profile Audit (worker
+-- perk): same "self-reported request, real WorkBridge action grants it"
+-- shape as escrow_funding_requests/withdrawal_requests, but the real
+-- outcome is a written review, not an approve/reject state machine — its
+-- own small status enum instead of reusing withdrawal_status.
+CREATE TYPE audit_status AS ENUM ('PENDING', 'REVIEWED');
+
+CREATE TABLE profile_audit_requests (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  worker_id   UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  purchase_id UUID REFERENCES perk_purchases(id) ON DELETE SET NULL,
+  status      audit_status NOT NULL DEFAULT 'PENDING',
+  admin_note  TEXT,
+  resolved_by UUID REFERENCES users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_profile_audit_requests_status ON profile_audit_requests (status, created_at);
+CREATE INDEX idx_profile_audit_requests_worker ON profile_audit_requests (worker_id, created_at DESC);
 
 -- ─── Design notes ───────────────────────────────────────────────────────────
 --

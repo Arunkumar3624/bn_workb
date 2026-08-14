@@ -13,6 +13,9 @@ import {
   fundEscrow,
   getProject,
   listOpenProjects,
+  listFeaturedEmployers,
+  getProjectShortlist,
+  broadcastProject,
   listProjects,
   requestRelease,
   updateProjectStatus,
@@ -31,11 +34,18 @@ projectsRouter.use(guard);
 // Registered before "/:id" — otherwise Express would match "open" as an
 // :id and route it into getProject instead of the job board feed below.
 projectsRouter.get("/open", requireRole("worker"), listOpenProjects);
+projectsRouter.get("/featured-employers", requireRole("worker"), listFeaturedEmployers);
 
 projectsRouter.get("/", validate(listProjectsQuerySchema, "query"), listProjects);
 projectsRouter.post("/", requireRole("business"), validate(createProjectSchema), createProject);
 projectsRouter.get("/:id", getProject);
 projectsRouter.patch("/:id", validate(updateProjectStatusSchema), updateProjectStatus);
+
+// Real effects of the "AI Shortlist" / "Enterprise Broadcast" perks —
+// gated behind an active purchase targeting this exact project (checked
+// inside each controller via perkPurchasesRepo.findActive).
+projectsRouter.get("/:id/shortlist", requireRole("business"), getProjectShortlist);
+projectsRouter.post("/:id/broadcast", requireRole("business"), broadcastProject);
 
 // The Open Job Board's apply/invite step — either a worker applying to an
 // OPEN post or the owning business inviting a specific worker to it (see

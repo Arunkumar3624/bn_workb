@@ -146,6 +146,26 @@ export async function listPublicProfiles({ role }) {
   return rows;
 }
 
+// Real effect of the "Featured Employer Spotlight" perk — WorkerJobFeed.jsx's
+// strip of businesses actively spending Corporate Credits to be seen. Scoped
+// to the business's currently-open posts so a worker clicking through
+// always lands somewhere real to apply, never a company with nothing live.
+export async function listFeaturedEmployers() {
+  const { rows } = await query(
+    `SELECT DISTINCT ON (b.id) b.id, b.avatar_url,
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
+            pp.expires_at,
+            (SELECT count(*)::int FROM projects p WHERE p.business_id = b.id AND p.status = 'OPEN') AS open_job_count
+     FROM perk_purchases pp
+     JOIN public_user_profiles b ON b.id = pp.user_id
+     WHERE pp.perk_id = 'featured-employer'
+       AND pp.consumed_at IS NULL
+       AND (pp.expires_at IS NULL OR pp.expires_at > now())
+     ORDER BY b.id, pp.expires_at DESC NULLS FIRST`
+  );
+  return rows;
+}
+
 // The caller's own profile edit (PATCH /api/profiles/me) — title/phone
 // overwrite when provided, profilePatch is shallow-merged into the existing
 // `profile` JSONB via Postgres's `||` so an edit to one field (e.g. bio)

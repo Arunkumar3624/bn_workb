@@ -164,12 +164,17 @@ export async function getWeeklyRevenue() {
 export async function listDisputedProjects() {
   const { rows } = await query(
     `SELECT p.*, w.name AS worker_name,
-            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name
+            COALESCE(NULLIF(b.profile->>'companyName', ''), b.name) AS business_name,
+            EXISTS (
+              SELECT 1 FROM perk_purchases pp
+              WHERE pp.perk_id = 'dispute-fast-track' AND pp.target_id = p.id
+                AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+            ) AS has_fast_track
      FROM projects p
      JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
      WHERE p.status = 'DISPUTED'
-     ORDER BY p.updated_at DESC`
+     ORDER BY has_fast_track DESC, p.updated_at DESC`
   );
   return rows;
 }

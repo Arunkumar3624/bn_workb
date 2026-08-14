@@ -4,12 +4,29 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import * as usersRepo from "../repositories/users.repository.js";
 import * as ledgerEventsRepo from "../repositories/ledger_events.repository.js";
 import * as perkPurchasesRepo from "../repositories/perk_purchases.repository.js";
+import * as profileAuditRepo from "../repositories/profile_audit_requests.repository.js";
 import { calculateLevel } from "../utils/gamification.js";
 import { findPerkTier } from "../domain/perksCatalog.js";
+import { targetRuleFor } from "../domain/perkTargets.js";
 
 // GET /api/perks/purchases — the caller's own redemption history.
 export const listPurchases = asyncHandler(async (req, res) => {
   const purchases = await perkPurchasesRepo.listForUser(req.user.id);
+  res.json({ data: purchases });
+});
+
+// GET /api/perks/profile-audits — the caller's own Skill Bridge Profile
+// Audit request history (WorkerProfile.jsx shows the latest one's status).
+export const listMyProfileAudits = asyncHandler(async (req, res) => {
+  const audits = await profileAuditRepo.listForWorker(req.user.id);
+  res.json({ data: audits });
+});
+
+// GET /api/perks/active — the caller's currently-active purchases (not
+// expired, not consumed) — the shop's "Active Perks" strip, and the same
+// definition every perk effect check below uses.
+export const listActivePurchases = asyncHandler(async (req, res) => {
+  const purchases = await perkPurchasesRepo.listActiveForUser(req.user.id);
   res.json({ data: purchases });
 });
 
@@ -19,21 +36,31 @@ export const listPurchases = asyncHandler(async (req, res) => {
 // trusted from the request body, so a tampered client can't buy a perk for
 // less than its real price.
 //
-// This makes the purchase itself real: the balance debit (ledger_events +
-// users.bridge_tokens, same awardXp path completeProject uses) and the
-// perk_purchases record. The perk's actual effect on job-feed ranking /
-// proposal-matching (MASTER_ECONOMY_PLAN.md Phase 3's slot-cap logic) is a
-// separate, not-yet-built feature — same "real data or honestly-labeled
-// preview" boundary as everywhere else on this platform.
+// Most perks boost a SPECIFIC thing (a job post, an application, a
+// dispute, a withdrawal) rather than the whole account — targetId is
+// required/validated via perkTargets.js's targetRuleFor whenever the perk
+// needs one, so a purchase can never end up pointed at something the
+// caller doesn't own or that isn't eligible.
 export const purchasePerk = asyncHandler(async (req, res) => {
-  const { perkId, tierId } = req.body;
+  const { perkId, tierId, targetId } = req.body;
   const found = findPerkTier(req.user.role, perkId, tierId);
   if (!found) {
     throw ApiError.badRequest("Unknown perk or tier for your account type.");
   }
   const { perk, tier } = found;
 
+  const rule = targetRuleFor(perk.id);
+  if (rule && !targetId) {
+    throw ApiError.badRequest("This perk needs a target — pick what it should apply to.");
+  }
+
   const result = await transaction(async (client) => {
+    // Validated inside the transaction (not before it) so the eligibility
+    // check and the token debit see the same consistent snapshot.
+    if (rule) {
+      await rule.validate(req.user, targetId);
+    }
+
     const user = await usersRepo.findForUpdate(client, req.user.id);
     if (!user) throw ApiError.notFound("User not found.");
     if (user.bridge_tokens < tier.cost) {
@@ -65,7 +92,16 @@ export const purchasePerk = asyncHandler(async (req, res) => {
       label: `${perk.name} — ${tier.label}`,
       tokenCost: tier.cost,
       expiresAt,
+      targetType: rule?.type ?? null,
+      targetId: rule ? targetId : null,
     });
+
+    // Profile Audit's real effect is a request that lands in Admin's real
+    // review queue — it doesn't wait for a separate action, purchasing it
+    // IS the request.
+    if (perk.id === "profile-audit") {
+      await profileAuditRepo.create(client, { workerId: req.user.id, purchaseId: purchase.id });
+    }
 
     return { purchase, bridgeTokens: updatedUser.bridge_tokens };
   });

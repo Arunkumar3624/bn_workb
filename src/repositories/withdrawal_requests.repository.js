@@ -33,11 +33,16 @@ export async function markResolved(client, id, { status, adminNote, resolvedBy }
 // admin.repository.js's listPendingReleases.
 export async function listPending() {
   const { rows } = await query(
-    `SELECT wr.*, w.name AS worker_name
+    `SELECT wr.*, w.name AS worker_name,
+            EXISTS (
+              SELECT 1 FROM perk_purchases pp
+              WHERE pp.perk_id = 'withdrawal-fast-track' AND pp.target_id = wr.id
+                AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+            ) AS has_fast_track
      FROM withdrawal_requests wr
      JOIN public_user_profiles w ON w.id = wr.worker_id
      WHERE wr.status = 'PENDING'
-     ORDER BY wr.created_at ASC`
+     ORDER BY has_fast_track DESC, wr.created_at ASC`
   );
   return rows;
 }
