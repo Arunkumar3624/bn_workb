@@ -77,7 +77,8 @@ export async function listThreadsForAdmin() {
             (SELECT created_at FROM support_messages sm WHERE sm.thread_id = st.id ORDER BY sm.created_at DESC LIMIT 1) AS last_message_at
      FROM support_threads st
      JOIN public_user_profiles u ON u.id = st.user_id
-     ORDER BY st.updated_at DESC`
+     ORDER BY st.updated_at DESC
+     LIMIT 200`
   );
   return rows;
 }

@@ -81,7 +81,8 @@ export async function listForWorker(workerId) {
      JOIN projects p ON p.id = c.project_id
      JOIN public_user_profiles b ON b.id = p.business_id
      WHERE c.worker_id = $1
-     ORDER BY c.created_at DESC`,
+     ORDER BY c.created_at DESC
+     LIMIT 200`,
     [workerId]
   );
   return rows;

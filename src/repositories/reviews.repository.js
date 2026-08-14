@@ -45,7 +45,8 @@ export async function listForReviewee(revieweeId) {
      FROM reviews r
      JOIN public_user_profiles p ON p.id = r.reviewer_id
      WHERE r.reviewee_id = $1
-     ORDER BY r.created_at DESC`,
+     ORDER BY r.created_at DESC
+     LIMIT 200`,
     [revieweeId]
   );
   return rows;

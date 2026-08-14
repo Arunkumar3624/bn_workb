@@ -49,7 +49,7 @@ export async function listPending() {
 
 export async function listForWorker(workerId) {
   const { rows } = await query(
-    `SELECT * FROM withdrawal_requests WHERE worker_id = $1 ORDER BY created_at DESC`,
+    `SELECT * FROM withdrawal_requests WHERE worker_id = $1 ORDER BY created_at DESC LIMIT 200`,
     [workerId]
   );
   return rows;

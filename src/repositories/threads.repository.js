@@ -49,7 +49,8 @@ export async function getUserThreads(userId) {
        LIMIT 1
      ) lm ON true
      WHERE ct.business_id = $1 OR ct.worker_id = $1
-     ORDER BY COALESCE(lm.created_at, ct.created_at) DESC`,
+     ORDER BY COALESCE(lm.created_at, ct.created_at) DESC
+     LIMIT 200`,
     [userId]
   );
   return rows;

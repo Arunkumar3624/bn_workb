@@ -23,7 +23,8 @@ export async function listAllUsers() {
   const { rows } = await query(
     `SELECT id, name, email, phone, role, email_verified, verified, is_active, is_chat_banned, created_at
      FROM users
-     ORDER BY created_at DESC`
+     ORDER BY created_at DESC
+     LIMIT 200`
   );
   return rows;
 }
@@ -194,7 +195,8 @@ export async function listAllInvoices() {
      JOIN public_user_profiles w ON w.id = p.worker_id
      JOIN public_user_profiles b ON b.id = p.business_id
      WHERE p.status IN ('FUNDS_SECURED', 'WORK_IN_PROGRESS', 'FILES_SUBMITTED', 'PENDING_RELEASE', 'COMPLETED', 'DISPUTED')
-     ORDER BY p.updated_at DESC`
+     ORDER BY p.updated_at DESC
+     LIMIT 200`
   );
   return rows;
 }
