@@ -49,15 +49,15 @@ export async function listForProject(projectId) {
   const { rows } = await query(
     `SELECT c.*, w.name AS worker_name, w.avatar_url, w.title AS worker_title,
             w.rating, w.reviews_count, w.profile, w.standing_door, w.current_level,
-            EXISTS (
-              SELECT 1 FROM perk_purchases pp
-              WHERE pp.perk_id = 'gold-highlight' AND pp.target_id = c.id
-                AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
-            ) AS has_gold_highlight
+            (SELECT pp.expires_at FROM perk_purchases pp
+             WHERE pp.perk_id = 'gold-highlight' AND pp.target_id = c.id
+               AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+             ORDER BY pp.expires_at DESC NULLS LAST LIMIT 1
+            ) AS gold_highlight_expires_at
      FROM job_candidates c
      JOIN users w ON w.id = c.worker_id
      WHERE c.project_id = $1
-     ORDER BY has_gold_highlight DESC, c.created_at DESC`,
+     ORDER BY (gold_highlight_expires_at IS NOT NULL) DESC, c.created_at DESC`,
     [projectId]
   );
   return rows;

@@ -481,6 +481,57 @@ export const completeProject = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
+// POST /api/projects/:id/propose-budget — the worker's real counter-offer
+// on the posted budget. Only while ACCEPTED — once funds are secured the
+// escrowed amount is locked, and before ACCEPTED there's no assigned
+// worker to negotiate with yet. Overwrites any earlier still-pending
+// proposal (see proposeBudget's own comment).
+export const proposeBudget = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { budget } = req.body;
+
+  const result = await transaction(async (client) => {
+    const project = await projectsRepo.findByIdForUpdate(client, id);
+    if (!project) throw ApiError.notFound("Project not found.");
+    if (project.worker_id !== req.user.id) {
+      throw ApiError.forbidden("Only the assigned worker can propose a new budget.");
+    }
+    if (project.status !== "ACCEPTED") {
+      throw ApiError.badRequest("Budget can only be proposed before funds are secured.");
+    }
+    return projectsRepo.proposeBudget(client, id, { proposedBudget: budget, proposedBy: req.user.id });
+  });
+
+  emitProjectEvent(result, "BUDGET_PROPOSED", { proposedBudget: Number(result.proposed_budget), senderId: req.user.id });
+  res.json({ data: result });
+});
+
+// POST /api/projects/:id/resolve-budget — body: { approved: boolean }.
+// Business-only. approved writes proposed_budget into the real budget
+// column (see resolveBudgetProposal); either way the proposal is spent.
+export const resolveBudgetProposal = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { approved } = req.body ?? {};
+  if (typeof approved !== "boolean") {
+    throw ApiError.badRequest("Body must include { approved: boolean }.");
+  }
+
+  const result = await transaction(async (client) => {
+    const project = await projectsRepo.findByIdForUpdate(client, id);
+    if (!project) throw ApiError.notFound("Project not found.");
+    if (project.business_id !== req.user.id) {
+      throw ApiError.forbidden("Only the business on this project can resolve a budget proposal.");
+    }
+    if (project.proposed_budget === null) {
+      throw ApiError.badRequest("There's no pending budget proposal on this project.");
+    }
+    return projectsRepo.resolveBudgetProposal(client, id, approved);
+  });
+
+  emitProjectEvent(result, "BUDGET_RESOLVED", { approved, budget: Number(result.budget), senderId: req.user.id });
+  res.json({ data: result });
+});
+
 // POST /api/projects/:id/cancel-refund — the Ghosting Failsafe. A worker who
 // accepted work and secured funds but never delivered by the real hard
 // deadline (project.deadline) shouldn't leave a business's money stuck in

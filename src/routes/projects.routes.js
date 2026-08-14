@@ -5,6 +5,7 @@ import {
   createProjectSchema,
   listProjectsQuerySchema,
   updateProjectStatusSchema,
+  proposeBudgetSchema,
 } from "../validators/projects.validators.js";
 import {
   cancelAndRefund,
@@ -19,6 +20,8 @@ import {
   listProjects,
   requestRelease,
   updateProjectStatus,
+  proposeBudget,
+  resolveBudgetProposal,
 } from "../controllers/projects.controller.js";
 import { createSubmission, listSubmissions } from "../controllers/submissions.controller.js";
 import { createSubmissionSchema } from "../validators/submissions.validators.js";
@@ -68,6 +71,12 @@ projectsRouter.post("/:id/complete", requireRole("admin"), completeProject);
 // The Ghosting Failsafe — business-only, instant, deadline-gated (see
 // cancelAndRefund's own comment for why this stays out of admin's hands).
 projectsRouter.post("/:id/cancel-refund", requireRole("business"), cancelAndRefund);
+
+// Budget negotiation — the posted budget used to be fixed once live; the
+// assigned worker can now propose a real counter-offer (worker-only,
+// ACCEPTED-only) and the business accepts/declines it (business-only).
+projectsRouter.post("/:id/propose-budget", requireRole("worker"), validate(proposeBudgetSchema), proposeBudget);
+projectsRouter.post("/:id/resolve-budget", requireRole("business"), resolveBudgetProposal);
 
 // The Trust Checker — either participant can submit a deliverable (link or
 // small image); every submission starts PENDING_REVIEW (see

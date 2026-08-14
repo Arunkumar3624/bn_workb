@@ -77,6 +77,8 @@ const BUSINESS_TAB_BY_EVENT = {
   SUBMISSION_CREATED: "projects",
   SUBMISSION_REVIEWED: "projects",
   COMPLETED: "projects",
+  BUDGET_PROPOSED: "negotiations",
+  BUDGET_RESOLVED: "negotiations",
   REVIEW_SUBMITTED: "projects",
 };
 
@@ -130,6 +132,14 @@ function buildProjectPushCopy(type, payload, project, role) {
       return { title: "Project completed", body: `"${title}" has been marked complete.`, url };
     case "REVIEW_SUBMITTED":
       return { title: "New review", body: `You received a review on "${title}".`, url };
+    case "BUDGET_PROPOSED":
+      return { title: "New budget proposal", body: `A new budget was proposed on "${title}".`, url };
+    case "BUDGET_RESOLVED":
+      return {
+        title: "Budget update",
+        body: payload.approved ? `Your proposed budget on "${title}" was accepted.` : `Your proposed budget on "${title}" was declined.`,
+        url,
+      };
     default:
       return null;
   }

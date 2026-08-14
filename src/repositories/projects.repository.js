@@ -144,11 +144,11 @@ export async function listOpen(viewerLevel = 0) {
             (SELECT count(*)::int FROM job_candidates c
              WHERE c.project_id = p.id AND c.source = 'APPLICATION'
             ) AS applicant_count,
-            EXISTS (
-              SELECT 1 FROM perk_purchases pp
-              WHERE pp.perk_id = 'flash-post' AND pp.target_id = p.id
-                AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
-            ) AS has_flash_post
+            (SELECT pp.expires_at FROM perk_purchases pp
+             WHERE pp.perk_id = 'flash-post' AND pp.target_id = p.id
+               AND pp.consumed_at IS NULL AND (pp.expires_at IS NULL OR pp.expires_at > now())
+             ORDER BY pp.expires_at DESC NULLS LAST LIMIT 1
+            ) AS flash_post_expires_at
      FROM projects p
      JOIN public_user_profiles b ON b.id = p.business_id
      WHERE p.status = 'OPEN'
@@ -157,7 +157,7 @@ export async function listOpen(viewerLevel = 0) {
          OR $1 >= (SELECT level_threshold FROM gamification_config WHERE tier_name = 'Silver')
          OR p.created_at <= now() - interval '3 hours'
        )
-     ORDER BY p.is_urgent DESC, has_flash_post DESC, p.created_at DESC
+     ORDER BY p.is_urgent DESC, (flash_post_expires_at IS NOT NULL) DESC, p.created_at DESC
      LIMIT 100`,
     [viewerLevel]
   );
@@ -226,6 +226,33 @@ export async function assignWorker(client, projectId, workerId, status) {
      WHERE id = $1
      RETURNING *`,
     [projectId, workerId, status]
+  );
+  return rows[0] ?? null;
+}
+
+// The worker's real counter-offer on the posted budget — only meaningful
+// pre-funding (see projects.controller.js's proposeBudget for the real
+// ACCEPTED-only gate). Overwrites any earlier still-pending proposal
+// rather than stacking them; there's only ever one live counter-offer.
+export async function proposeBudget(client, id, { proposedBudget, proposedBy }) {
+  const { rows } = await client.query(
+    `UPDATE projects SET proposed_budget = $2, proposed_by = $3 WHERE id = $1 RETURNING *`,
+    [id, proposedBudget, proposedBy]
+  );
+  return rows[0] ?? null;
+}
+
+// approve: true moves the real budget column to match what was proposed
+// (this is the only place `budget` ever changes after posting); false just
+// clears the proposal, leaving the original budget untouched. Either way
+// the proposal itself is spent — a declined offer doesn't linger for a
+// second look later.
+export async function resolveBudgetProposal(client, id, approve) {
+  const { rows } = await client.query(
+    approve
+      ? `UPDATE projects SET budget = proposed_budget, proposed_budget = NULL, proposed_by = NULL WHERE id = $1 RETURNING *`
+      : `UPDATE projects SET proposed_budget = NULL, proposed_by = NULL WHERE id = $1 RETURNING *`,
+    [id]
   );
   return rows[0] ?? null;
 }

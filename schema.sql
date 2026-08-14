@@ -261,6 +261,11 @@ CREATE TABLE projects (
   -- immediately, with a short public delay for everyone else. See
   -- migrations/019_urgent_matching.sql.
   is_urgent         BOOLEAN NOT NULL DEFAULT false,
+  -- migrations/036_budget_negotiation.sql — the worker's pending counter-
+  -- offer while status = ACCEPTED (pre-funding). Set together; cleared
+  -- together whether the business accepts (into `budget`) or declines.
+  proposed_budget   NUMERIC(12, 2),
+  proposed_by       UUID REFERENCES users(id),
   -- Set once the "deadline in 1 day" push reminder actually fires (see
   -- services/deadlineReminders.js) so the periodic scheduler doesn't
   -- re-notify the same project every time it runs.

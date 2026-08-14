@@ -13,6 +13,7 @@
     "migrate:email-verified": "node scripts/migrate-email-verified.js",
     "migrate:pending-signups": "node scripts/migrate-pending-signups.js",
     "migrate:perk-effects": "node scripts/migrate-035-perk-effects.js",
+    "migrate:budget-negotiation": "node scripts/migrate-036-budget-negotiation.js",
     "test": "node --test"
   },
   "dependencies": {

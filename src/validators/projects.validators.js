@@ -15,6 +15,14 @@ const PATCHABLE_STATUSES = [
   "DISPUTED",
 ];
 
+// The worker's real counter-offer on the posted budget (see
+// projects.controller.js's proposeBudget) — same real ₹50,00,000 ceiling
+// postJobSchema enforces client-side (Frontend/src/app/utils/formValidation.js),
+// mirrored here since a proposal is really just a second real budget write.
+export const proposeBudgetSchema = z.object({
+  budget: z.number().positive().max(5000000),
+});
+
 // workerId omitted entirely posts an OPEN job board listing (see
 // projects.repository.js's create) — the existing direct-invite flow still
 // passes a real workerId and behaves exactly as before this feature existed.
